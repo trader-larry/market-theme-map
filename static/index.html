@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#13151a">
+<title>Market Theme Map</title>
+<style>
+  :root {
+    --bg: #13151a; --panel: #1b1e25; --panel2: #232731; --line: #2d323e;
+    --text: #e7e9ee; --muted: #8b92a3; --up: #22c55e; --down: #ef4444; --accent: #60a5fa;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 18px 16px 8px; max-width: 1280px; margin: 0 auto; }
+  h1 { margin: 0; font-size: 22px; letter-spacing: .2px; }
+  .sub { color: var(--muted); margin-top: 2px; font-size: 13px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center;
+         padding: 10px 16px; max-width: 1280px; margin: 0 auto; }
+  .group { display: flex; align-items: center; gap: 6px; }
+  .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .6px; margin-right: 4px; }
+  .seg { display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { background: none; border: 0; color: var(--muted); padding: 6px 11px; font: inherit; cursor: pointer; }
+  .seg button.on { background: var(--panel2); color: var(--text); font-weight: 600; }
+  .icon { background: var(--panel); border: 1px solid var(--line); color: var(--text); border-radius: 50%;
+          width: 30px; height: 30px; cursor: pointer; font: 600 14px system-ui; }
+  .status { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .err { color: #f59e0b; }
+  main { max-width: 1280px; margin: 0 auto; padding: 8px 16px 40px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+  .tile { border-radius: 10px; padding: 12px; cursor: pointer; border: 1px solid rgba(255,255,255,.06);
+          transition: transform .08s; min-height: 112px; display: flex; flex-direction: column; }
+  .tile:hover { transform: translateY(-2px); }
+  .tile .name { font-weight: 600; font-size: 14px; }
+  .tile .avg { font-size: 26px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .tile .meta { margin-top: auto; display: flex; justify-content: space-between; font-size: 12px; opacity: .85; }
+  .breadth { height: 4px; border-radius: 2px; background: rgba(0,0,0,.35); margin-top: 6px; overflow: hidden; }
+  .breadth > i { display: block; height: 100%; background: rgba(255,255,255,.85); }
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none; align-items: flex-start;
+             justify-content: center; padding: 6vh 16px; z-index: 10; overflow-y: auto; }
+  .overlay.open { display: flex; }
+  .sheet { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; width: 100%; max-width: 560px; padding: 18px; }
+  .sheet h2 { margin: 0 0 2px; font-size: 18px; }
+  .sheet .close { float: right; background: none; border: 0; color: var(--muted); font-size: 22px; cursor: pointer; line-height: 1; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0; }
+  .stat { background: var(--panel2); border-radius: 8px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  .row { display: grid; grid-template-columns: 70px 1fr 74px 64px; gap: 10px; align-items: center;
+         padding: 7px 4px; border-top: 1px solid var(--line); cursor: pointer; font-variant-numeric: tabular-nums; }
+  .row:hover { background: var(--panel2); }
+  .row .tk { font-weight: 600; }
+  .row .px { color: var(--muted); text-align: right; }
+  .row .pc { text-align: right; font-weight: 600; }
+  .track { position: relative; height: 8px; background: var(--panel2); border-radius: 4px; }
+  .track i { position: absolute; top: 0; height: 100%; border-radius: 4px; }
+  .track:after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--line); }
+  .kv { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; margin-top: 12px; }
+  .kv div { display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding: 4px 0; }
+  .kv div span:first-child { color: var(--muted); }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--panel2); font-size: 12px; margin: 2px 4px 0 0; }
+  .up { color: var(--up); } .down { color: var(--down); }
+  .help p { color: #c9cdd6; margin: 8px 0; }
+  .help button.ok { margin-top: 10px; background: var(--accent); color: #0b1220; border: 0; border-radius: 8px; padding: 8px 16px; font-weight: 600; cursor: pointer; }
+  footer { color: var(--muted); font-size: 12px; text-align: center; padding: 10px 16px 30px; }
+  svg.spark { width: 100%; height: 90px; display: block; margin-top: 8px; }
+  @media (max-width: 520px) {
+    .grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .tile .avg { font-size: 21px; }
+    .status { margin-left: 0; width: 100%; }
+    .row { grid-template-columns: 58px 1fr 64px 58px; gap: 6px; }
+    .kv { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Market Theme Map</h1>
+  <div class="sub">Tap a theme to see its names. Tap a ticker for fair value and analyst coverage.</div>
+</header>
+<div class="bar">
+  <div class="group"><span class="label">Period</span><div class="seg" id="periods"></div></div>
+  <div class="group"><span class="label">Rank by</span><div class="seg" id="ranks"></div></div>
+  <button class="icon" id="refresh" title="Refresh prices now">&#x21bb;</button>
+  <button class="icon" id="helpBtn" title="How to read this">?</button>
+  <div class="status" id="status">Loading&hellip;</div>
+</div>
+<main><div class="grid" id="grid"></div></main>
+<footer>Prices delayed. For information only, not investment advice. Data: Yahoo Finance.</footer>
+
+<div class="overlay" id="themeOv"><div class="sheet" id="themeSheet"></div></div>
+<div class="overlay" id="tickerOv"><div class="sheet" id="tickerSheet"></div></div>
+<div class="overlay" id="helpOv"><div class="sheet help">
+  <h2>How to read this</h2>
+  <p><b>Period</b> sets the lookback. Lookbacks use trading sessions, so 1W is five sessions, 1M is 21, 3M is 63, 6M is 126 and 1Y is 252.</p>
+  <p><b>Rank by Move</b> orders themes by average move, strongest first. <b>Breadth</b> orders by the share of names advancing. <b>Name</b> sorts alphabetically.</p>
+  <p>Theme figures are equal-weighted averages of their member names. The median is shown beside the average so one outsized mover doesn't distort the picture. Breadth counts advancing names.</p>
+  <p>Fair value is the analysts' mean price target from Yahoo Finance. Edit <code>themes.json</code> to change themes and tickers.</p>
+  <button class="ok" id="gotIt">Got it</button>
+</div></div>
+
+<script>
+const PERIODS = ["1D", "1W", "1M", "3M", "6M", "1Y"];
+const RANKS = ["Move", "Breadth", "Name"];
+const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
+let state = { period: store("period") || "1D", rank: store("rank") || "Move", data: null };
+
+const $ = id => document.getElementById(id);
+const fmtPct = v => v == null ? "–" : (v > 0 ? "+" : "") + v.toFixed(2) + "%";
+const fmtNum = v => v == null ? "–" : Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
+const fmtCap = v => v == null ? "–" : v >= 1e12 ? (v / 1e12).toFixed(2) + "T" : v >= 1e9 ? (v / 1e9).toFixed(1) + "B" : (v / 1e6).toFixed(0) + "M";
+const cls = v => v == null ? "" : v >= 0 ? "up" : "down";
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// Scale colour intensity by period, since a 1Y move is much bigger than a 1D move.
+const SCALE = { "1D": 3, "1W": 6, "1M": 12, "3M": 20, "6M": 30, "1Y": 45 };
+function heat(v) {
+  if (v == null) return "#2a2e38";
+  const t = Math.min(Math.abs(v) / SCALE[state.period], 1);
+  const [r, g, b] = v >= 0 ? [22, 163, 74] : [220, 38, 38];
+  const base = [42, 46, 56];
+  const mix = (a, c) => Math.round(a + (c - a) * (0.25 + 0.75 * t));
+  return `rgb(${mix(base[0], r)},${mix(base[1], g)},${mix(base[2], b)})`;
+}
+
+function seg(el, items, key) {
+  el.innerHTML = items.map(i => `<button data-v="${i}" class="${state[key] === i ? "on" : ""}">${i}</button>`).join("");
+  el.onclick = e => {
+    const v = e.target.dataset.v; if (!v) return;
+    state[key] = v; store(key, v); seg(el, items, key);
+    key === "period" ? load() : render();
+  };
+}
+
+async function load() {
+  $("status").textContent = "Loading…";
+  try {
+    const r = await fetch(`/api/map?period=${state.period}`);
+    state.data = await r.json();
+    render();
+  } catch (e) {
+    $("status").innerHTML = `<span class="err">Can't reach the local server. Is app.py running?</span>`;
+  }
+}
+
+function sorted(themes) {
+  const t = [...themes];
+  const n = v => v == null ? -Infinity : v;
+  if (state.rank === "Move") t.sort((a, b) => n(b.avg) - n(a.avg));
+  else if (state.rank === "Breadth") t.sort((a, b) => (b.adv / (b.count || 1)) - (a.adv / (a.count || 1)) || n(b.avg) - n(a.avg));
+  else t.sort((a, b) => a.name.localeCompare(b.name));
+  return t;
+}
+
+function render() {
+  const d = state.data; if (!d) return;
+  let s = `${d.lastDay ? "Prices through " + d.lastDay + " · " : ""}Updated ${d.asof || "–"}${d.demo ? " · DEMO DATA" : ""}`;
+  if (d.error) s += ` · <span class="err">last refresh failed: ${esc(d.error)}</span>`;
+  $("status").innerHTML = s;
+  $("grid").innerHTML = sorted(d.themes).map(t => `
+    <div class="tile" data-name="${esc(t.name)}" style="background:${heat(t.avg)}">
+      <div class="name">${esc(t.name)}</div>
+      <div class="avg">${fmtPct(t.avg)}</div>
+      <div class="meta"><span>Median ${fmtPct(t.median)}</span><span>${t.adv}/${t.count} up</span></div>
+      <div class="breadth"><i style="width:${t.count ? (100 * t.adv / t.count) : 0}%"></i></div>
+    </div>`).join("");
+  if ($("themeOv").classList.contains("open")) openTheme(state.openTheme);
+}
+
+function openTheme(name) {
+  const t = state.data.themes.find(x => x.name === name); if (!t) return;
+  state.openTheme = name;
+  const max = Math.max(1, ...t.members.map(m => Math.abs(m.chg || 0)));
+  $("themeSheet").innerHTML = `
+    <button class="close" data-close>&times;</button>
+    <h2>${esc(t.name)}</h2><div class="sub">${state.period} move · equal-weighted</div>
+    <div class="stats">
+      <div class="stat"><b class="${cls(t.avg)}">${fmtPct(t.avg)}</b><span>Average</span></div>
+      <div class="stat"><b class="${cls(t.median)}">${fmtPct(t.median)}</b><span>Median</span></div>
+      <div class="stat"><b>${t.adv}/${t.count}</b><span>Advancing</span></div>
+    </div>
+    ${t.members.map(m => {
+      const w = m.chg == null ? 0 : 50 * Math.abs(m.chg) / max;
+      const bar = m.chg == null ? "" : m.chg >= 0
+        ? `<i style="left:50%;width:${w}%;background:var(--up)"></i>`
+        : `<i style="left:${50 - w}%;width:${w}%;background:var(--down)"></i>`;
+      return `<div class="row" data-t="${esc(m.t)}"><span class="tk">${esc(m.t)}</span>
+        <div class="track">${bar}</div><span class="px">${m.price == null ? "no data" : "$" + fmtNum(m.price)}</span>
+        <span class="pc ${cls(m.chg)}">${fmtPct(m.chg)}</span></div>`;
+    }).join("")}`;
+  $("themeOv").classList.add("open");
+}
+
+function spark(h) {
+  if (!h || h.length < 2) return "";
+  const W = 500, H = 90, lo = Math.min(...h), hi = Math.max(...h), rng = hi - lo || 1;
+  const pts = h.map((v, i) => `${(i / (h.length - 1)) * W},${H - 4 - ((v - lo) / rng) * (H - 8)}`).join(" ");
+  const col = h[h.length - 1] >= h[0] ? "var(--up)" : "var(--down)";
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+}
+
+async function openTicker(t) {
+  $("tickerSheet").innerHTML = `<button class="close" data-close>&times;</button><h2>${esc(t)}</h2><div class="sub">Loading analyst data…</div>`;
+  $("tickerOv").classList.add("open");
+  state.openTicker = t;
+  let d;
+  try {
+    const r = await fetch(`/api/ticker?t=${encodeURIComponent(t)}&period=${state.period}`);
+    d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.statusText);
+  } catch (e) {
+    $("tickerSheet").innerHTML = `<button class="close" data-close>&times;</button><h2>${esc(t)}</h2><div class="sub err">Couldn't load this ticker: ${esc(e.message)}</div>`;
+    return;
+  }
+  if (state.openTicker !== t) return;  // a different ticker was clicked meanwhile
+  const i = d.info || {};
+  const rec = i.recommendationKey ? i.recommendationKey.replace(/_/g, " ") : "–";
+  $("tickerSheet").innerHTML = `
+    <button class="close" data-close>&times;</button>
+    <h2>${esc(t)} <span class="${cls(d.chg)}" style="font-size:15px">${fmtPct(d.chg)}</span></h2>
+    <div class="sub">${esc(i.longName || i.shortName || "")}${i.sector ? " · " + esc(i.sector) : ""}</div>
+    ${spark(d.history)}
+    <div class="stats">
+      <div class="stat"><b>${d.price == null ? "–" : "$" + fmtNum(d.price)}</b><span>Price</span></div>
+      <div class="stat"><b>${i.targetMeanPrice == null ? "–" : "$" + fmtNum(i.targetMeanPrice)}</b><span>Fair value (mean target)</span></div>
+      <div class="stat"><b class="${cls(d.upside)}">${d.upside == null ? "–" : (d.upside > 0 ? "+" : "") + d.upside + "%"}</b><span>Upside</span></div>
+    </div>
+    <div class="kv">
+      <div><span>Analysts</span><span>${i.numberOfAnalystOpinions ?? "–"}</span></div>
+      <div><span>Consensus</span><span style="text-transform:capitalize">${esc(rec)}${i.recommendationMean ? " (" + i.recommendationMean + ")" : ""}</span></div>
+      <div><span>Target low</span><span>${i.targetLowPrice == null ? "–" : "$" + fmtNum(i.targetLowPrice)}</span></div>
+      <div><span>Target high</span><span>${i.targetHighPrice == null ? "–" : "$" + fmtNum(i.targetHighPrice)}</span></div>
+      <div><span>Trailing P/E</span><span>${fmtNum(i.trailingPE)}</span></div>
+      <div><span>Forward P/E</span><span>${fmtNum(i.forwardPE)}</span></div>
+      <div><span>Market cap</span><span>${fmtCap(i.marketCap)}</span></div>
+      <div><span>52w range</span><span>${i.fiftyTwoWeekLow ? fmtNum(i.fiftyTwoWeekLow) + " – " + fmtNum(i.fiftyTwoWeekHigh) : "–"}</span></div>
+    </div>
+    <div style="margin-top:12px">${(d.themes || []).map(x => `<span class="pill">${esc(x)}</span>`).join("")}</div>
+    ${i.error ? `<div class="sub err" style="margin-top:8px">Analyst data unavailable: ${esc(i.error)}</div>` : ""}`;
+}
+
+$("grid").onclick = e => { const el = e.target.closest(".tile"); if (el) openTheme(el.dataset.name); };
+$("themeSheet").onclick = e => { const r = e.target.closest(".row"); if (r) openTicker(r.dataset.t); };
+document.querySelectorAll(".overlay").forEach(ov => ov.addEventListener("click", e => {
+  if (e.target === ov || e.target.hasAttribute("data-close")) ov.classList.remove("open");
+}));
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  const open = [...document.querySelectorAll(".overlay.open")].pop(); if (open) open.classList.remove("open");
+});
+$("helpBtn").onclick = () => $("helpOv").classList.add("open");
+$("gotIt").onclick = () => { $("helpOv").classList.remove("open"); store("helpSeen", "1"); };
+$("refresh").onclick = async () => {
+  $("status").textContent = "Refreshing…";
+  try { await fetch("/api/refresh"); } catch (e) { /* load() reports the problem */ }
+  load();
+};
+
+seg($("periods"), PERIODS, "period");
+seg($("ranks"), RANKS, "rank");
+if (!store("helpSeen")) $("helpOv").classList.add("open");
+load();
+setInterval(load, 5 * 60 * 1000);
+</script>
+</body>
+</html>

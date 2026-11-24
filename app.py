@@ -1,0 +1,355 @@
+"""Market Theme Map: a local heatmap of stock themes.
+
+Uses only Python's standard library, so there is nothing to install.
+
+Run:  python app.py            (live, delayed data from Yahoo Finance)
+      python app.py --demo     (made-up prices, no internet needed)
+Then open http://localhost:8050
+"""
+import argparse
+import http.cookiejar
+import json
+import math
+import random
+import re
+import statistics
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import webbrowser
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+BASE = Path(__file__).resolve().parent
+STATIC = BASE / "static"
+THEMES_FILE = BASE / "themes.json"
+
+# Lookbacks in trading sessions (1W = five sessions).
+TICKER_RE = re.compile(r"[A-Z0-9.\-^=]{1,15}")
+PERIODS = {"1D": 1, "1W": 5, "1M": 21, "3M": 63, "6M": 126, "1Y": 252}
+PRICE_TTL = 5 * 60        # seconds between price refreshes
+INFO_TTL = 6 * 60 * 60    # seconds to keep analyst data
+
+ARGS = None
+_lock = threading.Lock()
+_prices = {"closes": {}, "dates": [], "fetched": 0.0, "asof": None, "error": None}
+_info_cache = {}
+
+
+def load_themes():
+    with open(THEMES_FILE, encoding="utf-8") as f:
+        themes = json.load(f)
+    return {name: [t.strip().upper() for t in tickers if t.strip()] for name, tickers in themes.items()}
+
+
+def all_tickers(themes):
+    return sorted({t for tickers in themes.values() for t in tickers})
+
+
+# ---------------------------------------------------------------- data sources
+
+UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/130.0 Safari/537.36")
+_cookies = http.cookiejar.CookieJar()
+_opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_cookies))
+_crumb = {"value": None}
+_crumb_lock = threading.Lock()
+_meta = {}  # ticker -> chart metadata (name, 52-week range), used when analyst data fails
+
+
+def http_get(url, timeout=15):
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "*/*"})
+    with _opener.open(req, timeout=timeout) as r:
+        return r.read().decode("utf-8")
+
+
+def fetch_chart(ticker):
+    url = ("https://query1.finance.yahoo.com/v8/finance/chart/"
+           f"{urllib.parse.quote(ticker)}?range=14mo&interval=1d&includePrePost=false")
+    for attempt in range(3):
+        try:
+            res = json.loads(http_get(url))["chart"]["result"][0]
+            break
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return ticker, None, None
+            time.sleep(1 + attempt * 2)
+        except Exception:
+            time.sleep(1 + attempt * 2)
+    else:
+        return ticker, None, None
+    ind = res.get("indicators", {})
+    meta = res.get("meta", {})
+    stamps = res.get("timestamp") or []
+    adj = (ind.get("adjclose") or [{}])[0].get("adjclose") or []
+    raw = (ind.get("quote") or [{}])[0].get("close") or []
+    offset = meta.get("gmtoffset") or 0
+    day = lambda ts: time.strftime("%Y-%m-%d", time.gmtime(ts + offset))
+    # Yahoo leaves the newest day's adjusted close empty until it's finalised,
+    # so fall back to the plain close for any bar without one.
+    bars = []
+    for i, ts in enumerate(stamps):
+        a = adj[i] if i < len(adj) else None
+        c = raw[i] if i < len(raw) else None
+        v = a if a is not None else c
+        if v is not None:
+            bars.append([day(ts), float(v)])
+    # Make sure the latest trade is in the series, even if Yahoo hasn't added today's bar yet.
+    live, live_ts = meta.get("regularMarketPrice"), meta.get("regularMarketTime")
+    if live and live_ts:
+        live_day = day(live_ts)
+        if bars and bars[-1][0] == live_day:
+            bars[-1][1] = float(live)
+        elif not bars or bars[-1][0] < live_day:
+            bars.append([live_day, float(live)])
+    series = [round(v, 4) for _, v in bars]
+    meta["lastDay"] = bars[-1][0] if bars else None
+    return ticker, series, meta
+
+
+def fetch_live(tickers):
+    closes, days = {}, []
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for t, series, meta in pool.map(fetch_chart, tickers):
+            if series and len(series) >= 2:
+                closes[t] = series
+            if meta:
+                _meta[t] = meta
+                if meta.get("lastDay"):
+                    days.append(meta["lastDay"])
+    return closes, sorted(days)[-1:]
+
+
+def get_crumb(force=False):
+    with _crumb_lock:
+        if _crumb["value"] and not force:
+            return _crumb["value"]
+        try:
+            http_get("https://fc.yahoo.com")  # sets the session cookie (the page itself 404s)
+        except Exception:
+            pass
+        _crumb["value"] = http_get("https://query1.finance.yahoo.com/v1/test/getcrumb").strip()
+        return _crumb["value"]
+
+
+def fetch_summary(ticker):
+    modules = "financialData,summaryDetail,defaultKeyStatistics,price,assetProfile"
+    for force in (False, True):
+        try:
+            crumb = get_crumb(force)
+            url = (f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{urllib.parse.quote(ticker)}"
+                   f"?modules={modules}&crumb={urllib.parse.quote(crumb)}")
+            res = json.loads(http_get(url))["quoteSummary"]["result"][0]
+            break
+        except Exception as e:
+            err = e
+    else:
+        raise err
+    flat = {}
+    for mod in res.values():
+        if isinstance(mod, dict):
+            for k, v in mod.items():
+                v = v.get("raw") if isinstance(v, dict) else v
+                if v is not None and v != {} and k not in flat:
+                    flat[k] = v
+    return flat
+
+
+def fetch_demo(tickers):
+    days = 300
+    rng = random.Random(42 + int(time.time() // PRICE_TTL))
+    closes = {}
+    for t in tickers:
+        r = random.Random(t)
+        p = r.uniform(20, 600)
+        drift = r.uniform(-0.0008, 0.0015)
+        vol = r.uniform(0.012, 0.04)
+        series = []
+        for _ in range(days):
+            p *= math.exp(drift + vol * r.gauss(0, 1))
+            series.append(round(p, 2))
+        series[-1] = round(series[-2] * math.exp(vol * rng.gauss(0, 1)), 2)
+        closes[t] = series
+    today = datetime.now().strftime("%Y-%m-%d")
+    return closes, [""] * (days - 1) + [today]
+
+
+def refresh_prices(force=False):
+    with _lock:
+        if not force and time.time() - _prices["fetched"] < PRICE_TTL and _prices["closes"]:
+            return
+        tickers = all_tickers(load_themes())
+        try:
+            closes, dates = (fetch_demo if ARGS.demo else fetch_live)(tickers)
+            if not closes:
+                raise RuntimeError("no prices returned")
+            _prices.update(closes=closes, dates=dates, fetched=time.time(),
+                           asof=datetime.now().strftime("%Y-%m-%d %H:%M"), error=None)
+            missing = len(tickers) - len(closes)
+            print(f"[{_prices['asof']}] prices refreshed for {len(closes)} tickers"
+                  + (f" ({missing} missing)" if missing else ""))
+        except Exception as e:  # keep serving the last good data
+            _prices["error"] = str(e)
+            _prices["fetched"] = time.time() - PRICE_TTL + 60  # retry in a minute
+            print("price refresh failed:", e)
+
+
+def get_info(ticker):
+    hit = _info_cache.get(ticker)
+    if hit and time.time() - hit[0] < INFO_TTL:
+        return hit[1]
+    if ARGS.demo:
+        r = random.Random(ticker)
+        price = (_prices["closes"].get(ticker) or [100])[-1]
+        info = {
+            "longName": f"{ticker} (demo)", "targetMeanPrice": round(price * r.uniform(0.85, 1.35), 2),
+            "targetHighPrice": round(price * 1.6, 2), "targetLowPrice": round(price * 0.7, 2),
+            "numberOfAnalystOpinions": r.randint(3, 45),
+            "recommendationKey": r.choice(["strong_buy", "buy", "hold", "underperform"]),
+            "recommendationMean": round(r.uniform(1.3, 3.4), 2),
+            "trailingPE": round(r.uniform(8, 80), 1), "forwardPE": round(r.uniform(8, 60), 1),
+            "marketCap": r.randint(2, 3000) * 10**9, "sector": "Demo", "industry": "Demo",
+        }
+    else:
+        m = _meta.get(ticker, {})
+        info = {"longName": m.get("longName"), "shortName": m.get("shortName"),
+                "fiftyTwoWeekHigh": m.get("fiftyTwoWeekHigh"), "fiftyTwoWeekLow": m.get("fiftyTwoWeekLow")}
+        try:
+            info.update(fetch_summary(ticker))
+        except Exception as e:
+            info["error"] = str(e)
+    keep = ["longName", "shortName", "sector", "industry", "marketCap", "trailingPE", "forwardPE",
+            "targetMeanPrice", "targetMedianPrice", "targetHighPrice", "targetLowPrice",
+            "numberOfAnalystOpinions", "recommendationKey", "recommendationMean",
+            "fiftyTwoWeekHigh", "fiftyTwoWeekLow", "error"]
+    info = {k: info.get(k) for k in keep if info.get(k) is not None}
+    _info_cache[ticker] = (time.time(), info)
+    return info
+
+
+# ---------------------------------------------------------------- calculations
+
+def pct_change(series, n):
+    if len(series) <= n:
+        return None
+    base = series[-1 - n]
+    return None if not base else (series[-1] / base - 1) * 100
+
+
+def build_map(period):
+    n = PERIODS.get(period, 1)
+    refresh_prices()
+    closes = _prices["closes"]
+    themes = []
+    for name, tickers in load_themes().items():
+        members = []
+        for t in tickers:
+            s = closes.get(t)
+            chg = pct_change(s, n) if s else None
+            members.append({"t": t, "chg": None if chg is None else round(chg, 2),
+                            "price": s[-1] if s else None})
+        moves = [m["chg"] for m in members if m["chg"] is not None]
+        themes.append({
+            "name": name,
+            "avg": round(statistics.fmean(moves), 2) if moves else None,
+            "median": round(statistics.median(moves), 2) if moves else None,
+            "adv": sum(1 for m in moves if m > 0),
+            "count": len(moves),
+            "members": sorted(members, key=lambda m: -1e9 if m["chg"] is None else -m["chg"]),
+        })
+    return {"period": period, "asof": _prices["asof"], "demo": ARGS.demo,
+            "lastDay": (_prices["dates"] or [None])[-1],
+            "error": _prices["error"], "themes": themes}
+
+
+def build_ticker(ticker, period):
+    refresh_prices()
+    s = _prices["closes"].get(ticker, [])
+    n = PERIODS.get(period, 1)
+    history = s[-(max(n, 21) + 1):]
+    info = get_info(ticker)
+    price = s[-1] if s else None
+    target = info.get("targetMeanPrice")
+    upside = round((target / price - 1) * 100, 1) if target and price else None
+    return {"t": ticker, "price": price, "chg": pct_change(s, n) if s else None,
+            "history": history, "upside": upside, "info": info,
+            "themes": [k for k, v in load_themes().items() if ticker in v]}
+
+
+# ---------------------------------------------------------------- web server
+
+class Handler(SimpleHTTPRequestHandler):
+    def __init__(self, *a, **kw):
+        super().__init__(*a, directory=str(STATIC), **kw)
+
+    def log_message(self, fmt, *args):
+        pass
+
+    def end_headers(self):
+        # Stop the browser from keeping an old copy of the page after an update.
+        if not self.path.startswith("/api/"):
+            self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
+    def send_json(self, obj, code=200):
+        body = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        url = urlparse(self.path)
+        q = {k: v[0] for k, v in parse_qs(url.query).items()}
+        try:
+            if url.path == "/api/map":
+                return self.send_json(build_map(q.get("period", "1D")))
+            if url.path == "/api/ticker":
+                ticker = q.get("t", "").strip().upper()
+                if not TICKER_RE.fullmatch(ticker):
+                    return self.send_json({"error": "invalid ticker"}, 400)
+                return self.send_json(build_ticker(ticker, q.get("period", "1D")))
+            if url.path == "/api/refresh":
+                refresh_prices(force=True)
+                return self.send_json({"ok": True, "asof": _prices["asof"]})
+        except Exception as e:
+            return self.send_json({"error": str(e)}, 500)
+        return super().do_GET()
+
+
+def main():
+    global ARGS
+    ap = argparse.ArgumentParser(description="Local market theme map")
+    ap.add_argument("--port", type=int, default=8050)
+    ap.add_argument("--demo", action="store_true", help="use made-up prices (no internet)")
+    ap.add_argument("--no-browser", action="store_true", help="don't open a browser tab")
+    ARGS = ap.parse_args()
+
+    print("Loading prices (first load can take ~20 seconds)...")
+    refresh_prices(force=True)
+    url = f"http://localhost:{ARGS.port}"
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", ARGS.port), Handler)
+    except OSError:
+        raise SystemExit(f"Port {ARGS.port} is busy. Is the app already running? "
+                         f"Close it, or start with --port {ARGS.port + 1}.")
+    print(f"Market Theme Map running at {url}  (Ctrl+C to stop)")
+    if not ARGS.no_browser:
+        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopped.")
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()
