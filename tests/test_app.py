@@ -138,5 +138,54 @@ class CalculationTests(unittest.TestCase):
                 self.assertRegex(t, app.TICKER_RE)
 
 
+class PasswordTests(unittest.TestCase):
+    """The optional password (APP_PASSWORD) used when the app is hosted online."""
+
+    def setUp(self):
+        import os
+        import threading
+        from http.server import ThreadingHTTPServer
+        app.ARGS = types.SimpleNamespace(demo=True)
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.base = f"http://127.0.0.1:{self.server.server_port}"
+        self.env = os.environ
+        self.old = os.environ.pop("APP_PASSWORD", None)
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.env.pop("APP_PASSWORD", None)
+        if self.old is not None:
+            self.env["APP_PASSWORD"] = self.old
+
+    def status(self, path, password=None):
+        import base64
+        import urllib.request
+        req = urllib.request.Request(self.base + path)
+        if password is not None:
+            token = base64.b64encode(f"me:{password}".encode()).decode()
+            req.add_header("Authorization", "Basic " + token)
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status
+        except urllib.error.HTTPError as e:
+            return e.code
+
+    def test_no_password_by_default(self):
+        self.assertEqual(self.status("/"), 200)
+
+    def test_password_required_when_set(self):
+        self.env["APP_PASSWORD"] = "s3cret"
+        self.assertEqual(self.status("/"), 401)
+        self.assertEqual(self.status("/", "wrong"), 401)
+        self.assertEqual(self.status("/", "s3cret"), 200)
+        self.assertEqual(self.status("/api/map?period=1D", "s3cret"), 200)
+
+    def test_health_check_skips_password(self):
+        self.env["APP_PASSWORD"] = "s3cret"
+        self.assertEqual(self.status("/healthz"), 200)
+
+
 if __name__ == "__main__":
     unittest.main()
