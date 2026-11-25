@@ -12,6 +12,9 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.8"
+      # Show times in New York time instead of the server's UTC.
+      - key: TZ
+        value: America/New_York
       # Render asks for a value when you apply the Blueprint.
       # Leave it empty for no password.
       - key: APP_PASSWORD
