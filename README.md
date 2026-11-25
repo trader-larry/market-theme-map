@@ -1,6 +1,6 @@
 # Market Theme Map
 
-A heatmap of the stock market grouped by investment theme, that runs on your own computer. Each tile is a theme (AI Semiconductors, Nuclear & Uranium, Homebuilders and so on) colored by how its stocks moved. Click a theme to see its stocks, then click a stock for its chart, the analysts' fair value and consensus rating.
+A heatmap of the stock market grouped by investment theme, that runs on your own computer (or online, see [Hosting on Render](#hosting-on-render)). Each tile is a theme (AI Semiconductors, Nuclear & Uranium, Homebuilders and so on) colored by how its stocks moved. Click a theme to see its stocks, then click a stock for its chart, the analysts' fair value and consensus rating.
 
 ![Market Theme Map screenshot](screenshot.png)
 
@@ -48,7 +48,26 @@ Use Yahoo's symbol format, for example `BRK-B`, `RY.TO` for Toronto, or `^GSPC` 
 
 - `app.py` is a small local web server. It downloads 14 months of daily prices for every symbol from Yahoo's chart endpoint, computes each theme's figures, and serves them to the page as JSON. Analyst data is fetched when you open a stock and cached for 6 hours.
 - `static/index.html` is the whole front end: plain HTML, CSS and JavaScript with no build step.
-- The server only listens on `127.0.0.1`, so other computers on your network can't reach it.
+- Run locally, the server only listens on `127.0.0.1`, so other computers on your network can't reach it.
+
+## Hosting on Render
+
+You can put the app online so it opens on your phone. [`render.yaml`](render.yaml) sets it up on Render's free plan.
+
+1. Sign up at [render.com](https://render.com) with your GitHub account.
+2. Click **New**, then **Blueprint**, and pick this repository. Give Render access to it if asked.
+3. Render asks for `APP_PASSWORD`. Type a password to keep the page private, or leave it empty to make it public.
+4. Click **Apply**. The first deploy takes a few minutes. Your link looks like `https://market-theme-map.onrender.com`.
+
+When `APP_PASSWORD` is set, your browser asks for a username and password. Type anything as the username and your password below it. You can change the password later under the service's **Environment** tab.
+
+Things to know:
+
+- **The free plan sleeps** after 15 minutes without visitors, so the first visit after a break takes about a minute while it wakes up and loads prices.
+- **Yahoo sometimes blocks cloud servers.** If prices fail online but work at home, that's the likely cause. The app keeps retrying every minute.
+- **Updates deploy themselves:** each push to `main` redeploys the app.
+
+The app switches to hosted mode whenever the `PORT` environment variable is set: it listens on `0.0.0.0:$PORT` and doesn't open a browser. Running it at home works exactly as before.
 
 ## Running the tests
 

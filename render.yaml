@@ -1,0 +1,18 @@
+# Render Blueprint: hosts the app as a free web service.
+# In Render: New > Blueprint, pick this repository, then Apply.
+services:
+  - type: web
+    name: market-theme-map
+    runtime: python
+    plan: free
+    buildCommand: echo "Nothing to install"
+    startCommand: python app.py
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      # Render asks for a value when you apply the Blueprint.
+      # Leave it empty for no password.
+      - key: APP_PASSWORD
+        sync: false

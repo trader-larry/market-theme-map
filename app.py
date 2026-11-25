@@ -5,11 +5,18 @@ Uses only Python's standard library, so there is nothing to install.
 Run:  python app.py            (live, delayed data from Yahoo Finance)
       python app.py --demo     (made-up prices, no internet needed)
 Then open http://localhost:8050
+
+Hosting (e.g. Render): when the PORT environment variable is set, the app
+listens on 0.0.0.0:$PORT and doesn't open a browser. Set APP_PASSWORD to ask
+for a password (any username); leave it unset for no password.
 """
 import argparse
+import base64
+import hmac
 import http.cookiejar
 import json
 import math
+import os
 import random
 import re
 import statistics
@@ -341,8 +348,30 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def authorized(self):
+        password = os.environ.get("APP_PASSWORD")
+        if not password:
+            return True
+        header = self.headers.get("Authorization", "")
+        if header.startswith("Basic "):
+            try:
+                _, _, given = base64.b64decode(header[6:]).decode("utf-8").partition(":")
+            except Exception:
+                given = ""
+            if hmac.compare_digest(given.encode(), password.encode()):
+                return True
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="Market Theme Map", charset="UTF-8"')
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        return False
+
     def do_GET(self):
         url = urlparse(self.path)
+        if url.path == "/healthz":  # for the host's health check, so it skips the password
+            return self.send_json({"ok": True})
+        if not self.authorized():
+            return
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
         try:
             if url.path == "/api/map":
@@ -362,21 +391,29 @@ class Handler(SimpleHTTPRequestHandler):
 
 def main():
     global ARGS
+    env_port = os.environ.get("PORT")  # set by hosts such as Render
     ap = argparse.ArgumentParser(description="Local market theme map")
-    ap.add_argument("--port", type=int, default=8050)
+    ap.add_argument("--port", type=int, default=int(env_port) if env_port else 8050)
+    ap.add_argument("--host", default="0.0.0.0" if env_port else "127.0.0.1",
+                    help="address to listen on (default 127.0.0.1, or 0.0.0.0 when PORT is set)")
     ap.add_argument("--demo", action="store_true", help="use made-up prices (no internet)")
     ap.add_argument("--no-browser", action="store_true", help="don't open a browser tab")
     ARGS = ap.parse_args()
+    if env_port:
+        ARGS.no_browser = True
 
-    print("Loading prices (first load can take ~20 seconds)...")
-    refresh_prices(force=True)
-    url = f"http://localhost:{ARGS.port}"
     try:
-        server = ThreadingHTTPServer(("127.0.0.1", ARGS.port), Handler)
+        server = ThreadingHTTPServer((ARGS.host, ARGS.port), Handler)
     except OSError:
         raise SystemExit(f"Port {ARGS.port} is busy. Is the app already running? "
                          f"Close it, or start with --port {ARGS.port + 1}.")
+    # The port is open now (so a host sees the app starting); requests wait until prices load.
+    print("Loading prices (first load can take ~20 seconds)...")
+    refresh_prices(force=True)
+    url = f"http://localhost:{ARGS.port}"
     print(f"Market Theme Map running at {url}  (Ctrl+C to stop)")
+    if os.environ.get("APP_PASSWORD"):
+        print("Password protection is on (APP_PASSWORD is set).")
     if not ARGS.no_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     try:
