@@ -37,7 +37,7 @@ INFO_TTL = 6 * 60 * 60    # seconds to keep analyst data
 
 ARGS = None
 _lock = threading.Lock()
-_prices = {"closes": {}, "dates": [], "fetched": 0.0, "asof": None, "error": None}
+_prices = {"closes": {}, "dates": [], "fetched": 0.0, "asof": None, "error": None, "busy": False}
 _info_cache = {}
 
 
@@ -179,24 +179,57 @@ def fetch_demo(tickers):
     return closes, [""] * (days - 1) + [today]
 
 
-def refresh_prices(force=False):
+def refresh_prices(force=False, wait=False):
+    """Refresh prices when they're stale.
+
+    Downloading takes 10 to 30 seconds, so once there is data to show, the
+    download runs in the background and requests keep getting the last prices.
+    """
     with _lock:
-        if not force and time.time() - _prices["fetched"] < PRICE_TTL and _prices["closes"]:
-            return
+        stale = force or not _prices["closes"] or time.time() - _prices["fetched"] >= PRICE_TTL
+        start = stale and not _prices["busy"]
+        if start:
+            _prices["busy"] = True
+    if start:
+        if _prices["closes"] and not wait:
+            threading.Thread(target=_download_prices, daemon=True).start()
+        else:
+            _download_prices()
+    elif wait:
+        while _prices["busy"]:  # another refresh is running; let it finish
+            time.sleep(0.25)
+
+
+def _download_prices():
+    try:
         tickers = all_tickers(load_themes())
         try:
-            closes, dates = (fetch_demo if ARGS.demo else fetch_live)(tickers)
-            if not closes:
+            fresh, dates = (fetch_demo if ARGS.demo else fetch_live)(tickers)
+            if not fresh:
                 raise RuntimeError("no prices returned")
-            _prices.update(closes=closes, dates=dates, fetched=time.time(),
-                           asof=datetime.now().strftime("%Y-%m-%d %H:%M"), error=None)
-            missing = len(tickers) - len(closes)
-            print(f"[{_prices['asof']}] prices refreshed for {len(closes)} tickers"
-                  + (f" ({missing} missing)" if missing else ""))
         except Exception as e:  # keep serving the last good data
-            _prices["error"] = str(e)
-            _prices["fetched"] = time.time() - PRICE_TTL + 60  # retry in a minute
+            with _lock:
+                _prices["error"] = str(e)
+                _prices["fetched"] = time.time() - PRICE_TTL + 60  # retry in a minute
             print("price refresh failed:", e)
+            return
+        # Symbols Yahoo skipped this time keep their last good prices.
+        old = _prices["closes"]
+        kept = [t for t in tickers if t not in fresh and t in old]
+        closes = {**{t: old[t] for t in kept}, **fresh}
+        missing = len(tickers) - len(closes)
+        notes = []
+        if kept:
+            notes.append(f"{len(kept)} kept from the last refresh")
+        if missing:
+            notes.append(f"{missing} missing")
+        with _lock:
+            _prices.update(closes=closes, dates=dates or _prices["dates"], fetched=time.time(),
+                           asof=datetime.now().strftime("%Y-%m-%d %H:%M"), error=None)
+        print(f"[{_prices['asof']}] prices refreshed for {len(fresh)} tickers"
+              + (f" ({', '.join(notes)})" if notes else ""))
+    finally:
+        _prices["busy"] = False
 
 
 def get_info(ticker):
@@ -227,6 +260,9 @@ def get_info(ticker):
             "targetMeanPrice", "targetMedianPrice", "targetHighPrice", "targetLowPrice",
             "numberOfAnalystOpinions", "recommendationKey", "recommendationMean",
             "fiftyTwoWeekHigh", "fiftyTwoWeekLow", "error"]
+    year = (_prices["closes"].get(ticker) or [])[-253:]
+    if year and info.get("fiftyTwoWeekHigh") is None:
+        info["fiftyTwoWeekHigh"], info["fiftyTwoWeekLow"] = max(year), min(year)
     info = {k: info.get(k) for k in keep if info.get(k) is not None}
     _info_cache[ticker] = (time.time(), info)
     return info
@@ -317,7 +353,7 @@ class Handler(SimpleHTTPRequestHandler):
                     return self.send_json({"error": "invalid ticker"}, 400)
                 return self.send_json(build_ticker(ticker, q.get("period", "1D")))
             if url.path == "/api/refresh":
-                refresh_prices(force=True)
+                refresh_prices(force=True, wait=True)
                 return self.send_json({"ok": True, "asof": _prices["asof"]})
         except Exception as e:
             return self.send_json({"error": str(e)}, 500)

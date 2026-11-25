@@ -4,6 +4,7 @@ Run from the project folder:  python -m unittest
 """
 import json
 import sys
+import time
 import types
 import unittest
 import urllib.error
@@ -68,6 +69,44 @@ class FetchChartTests(unittest.TestCase):
         self.assertNotIn("forwardPE", info)
 
 
+class RefreshTests(unittest.TestCase):
+    def setUp(self):
+        app.ARGS = types.SimpleNamespace(demo=False)
+        app._prices.update(closes={}, dates=[], fetched=0.0, asof=None, error=None, busy=False)
+        self.orig_fetch_live, self.orig_load = app.fetch_live, app.load_themes
+        app.load_themes = lambda: {"T": ["A", "B"]}
+
+    def tearDown(self):
+        app.fetch_live, app.load_themes = self.orig_fetch_live, self.orig_load
+
+    def test_symbols_missing_from_a_refresh_keep_last_prices(self):
+        app.fetch_live = lambda tickers: ({"A": [1.0, 2.0], "B": [3.0, 4.0]}, ["d1"])
+        app.refresh_prices(force=True, wait=True)
+        app.fetch_live = lambda tickers: ({"A": [2.0, 5.0]}, ["d2"])  # Yahoo skipped B
+        app.refresh_prices(force=True, wait=True)
+        self.assertEqual(app._prices["closes"], {"A": [2.0, 5.0], "B": [3.0, 4.0]})
+        self.assertIsNone(app._prices["error"])
+
+    def test_stale_refresh_runs_in_background(self):
+        import threading
+        release = threading.Event()
+        app.fetch_live = lambda tickers: ({"A": [1.0, 2.0]}, ["d1"])
+        app.refresh_prices(force=True, wait=True)
+
+        def slow(tickers):
+            release.wait(5)
+            return {"A": [2.0, 3.0]}, ["d2"]
+        app.fetch_live = slow
+        app._prices["fetched"] = 0  # make the data stale
+        start = time.time()
+        app.refresh_prices()  # must not wait for the slow download
+        self.assertLess(time.time() - start, 1)
+        self.assertEqual(app._prices["closes"]["A"], [1.0, 2.0])  # still serving old data
+        release.set()
+        app.refresh_prices(force=False, wait=True)
+        self.assertEqual(app._prices["closes"]["A"], [2.0, 3.0])
+
+
 class CalculationTests(unittest.TestCase):
     def test_pct_change(self):
         self.assertAlmostEqual(app.pct_change([100, 105, 110], 1), 4.7619, places=3)
@@ -81,6 +120,14 @@ class CalculationTests(unittest.TestCase):
         self.assertTrue(data["themes"])
         for theme in data["themes"]:
             self.assertLessEqual(theme["adv"], theme["count"])
+
+    def test_demo_info_has_52_week_range(self):
+        app.ARGS = types.SimpleNamespace(demo=True)
+        app._prices["fetched"] = 0
+        app.refresh_prices(force=True, wait=True)
+        app._info_cache.clear()
+        info = app.get_info("NVDA")
+        self.assertLessEqual(info["fiftyTwoWeekLow"], info["fiftyTwoWeekHigh"])
 
     def test_themes_file_is_valid(self):
         themes = app.load_themes()
