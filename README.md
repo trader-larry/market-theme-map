@@ -61,7 +61,8 @@ python -m unittest
 ## Notes
 
 - **Windows 11 Smart App Control:** the app avoids add-on packages such as numpy and yfinance on purpose, because Smart App Control blocks their unsigned DLLs.
-- **Rate limits:** if Yahoo stops answering, the app keeps showing the last good data and retries a minute later.
+- **Rate limits:** if Yahoo stops answering, the app keeps showing the last good data and retries a minute later. Symbols that Yahoo skips in one refresh keep their previous prices.
+- **Refreshes happen in the background,** so the page stays responsive while new prices download.
 - **Data source:** this uses Yahoo Finance's public but unofficial endpoints, which can change without notice. It's meant for personal use, so check Yahoo's terms before using it for anything else.
 
 ## Disclaimer

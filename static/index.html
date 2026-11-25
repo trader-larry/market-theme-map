@@ -82,8 +82,10 @@
 <div class="bar">
   <div class="group"><span class="label">Period</span><div class="seg" id="periods"></div></div>
   <div class="group"><span class="label">Rank by</span><div class="seg" id="ranks"></div></div>
-  <button class="icon" id="refresh" title="Refresh prices now">&#x21bb;</button>
-  <button class="icon" id="helpBtn" title="How to read this">?</button>
+  <div class="group">
+    <button class="icon" id="refresh" title="Refresh prices now">&#x21bb;</button>
+    <button class="icon" id="helpBtn" title="How to read this">?</button>
+  </div>
   <div class="status" id="status">Loading&hellip;</div>
 </div>
 <main><div class="grid" id="grid"></div></main>
@@ -261,7 +263,7 @@ seg($("periods"), PERIODS, "period");
 seg($("ranks"), RANKS, "rank");
 if (!store("helpSeen")) $("helpOv").classList.add("open");
 load();
-setInterval(load, 5 * 60 * 1000);
+setInterval(load, 60 * 1000);  // cheap: the server only re-downloads every 5 minutes
 </script>
 </body>
 </html>
