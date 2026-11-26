@@ -200,6 +200,20 @@ class CalculationTests(unittest.TestCase):
         self.assertNotIn("etf", themes["themes"][0])
         self.assertEqual(app.build_map("1D", "bogus")["view"], "themes")
 
+    def test_table_has_every_period_and_matches_the_map(self):
+        app.ARGS = types.SimpleNamespace(demo=True)
+        app._prices["fetched"] = 0
+        for view in app.VIEWS:
+            table = app.build_table(view)
+            self.assertEqual(table["periods"], list(app.PERIODS))
+            self.assertEqual({r["name"] for r in table["rows"]}, set(app.load_groups(view)))
+            for p in app.PERIODS:
+                cards = {g["name"]: g["avg"] for g in app.build_map(p, view)["themes"]}
+                self.assertEqual({r["name"]: r["moves"][p] for r in table["rows"]}, cards)
+        sector = app.build_table("sectors")["rows"][0]
+        self.assertEqual(sector["etf"], app.load_sector_etfs()[sector["name"]])
+        self.assertEqual(set(sector["basis"].values()), {"etf"})  # SPDR numbers, like the cards
+
     def test_ticker_lists_its_themes_and_sector(self):
         app.ARGS = types.SimpleNamespace(demo=True)
         app._prices["fetched"] = 0
