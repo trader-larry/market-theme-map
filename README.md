@@ -44,7 +44,8 @@ You need **Python 3.10 or newer** first. That's the only thing to install.
 3. In a terminal, `cd` into the `market-theme-map` folder and run `python3 app.py`.
 4. Your browser opens <http://localhost:8050>.
 
-To update later, download the newest zip and unzip it over your folder. If you edited
+When a new version is out, the map shows a notice at the top with a download link.
+To update, download the newest zip and unzip it over your folder. If you edited
 `themes.json`, copy it somewhere first, since the new zip has its own copy.
 
 ## Options
@@ -56,6 +57,7 @@ Add these after `app.py` (for example `python3 app.py --demo`), or after `run.ba
 | `--demo` | Uses made-up prices, so it works offline |
 | `--port 8051` | Runs on a different port |
 | `--no-browser` | Doesn't open a browser tab |
+| `--no-update-check` | Doesn't check GitHub for a newer version (see [Update notice](#update-notice)) |
 
 ## Customizing themes
 
@@ -119,9 +121,18 @@ git push origin v1.2.0
 
 The [Release workflow](.github/workflows/release.yml) zips the tagged files into
 `market-theme-map-v1.2.0.zip` and publishes it as a GitHub Release with
-auto-generated notes. Only committed files go in, so `__pycache__` and other ignored
+auto-generated notes, and adds a `VERSION` file that powers the update notice. Only committed files go in, so `__pycache__` and other ignored
 files can't leak. Repo-only files (tests, the Render config, the screenshot) are left
 out by `export-ignore` lines in [.gitattributes](.gitattributes).
+
+## Update notice
+
+A downloaded copy checks GitHub once every 12 hours for a newer release and, if
+there is one, shows a banner with a link to it. **Dismiss** hides it until the next
+version. The check only reads the public release number from GitHub; nothing about
+you is sent. It never downloads or installs anything by itself. Turn it off with
+`python app.py --no-update-check` (or set `THEMEMAP_NO_UPDATE_CHECK=1`). Copies made
+with git clone, and the Render version, don't check.
 
 ## Notes
 

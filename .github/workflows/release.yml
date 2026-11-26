@@ -32,7 +32,7 @@ jobs:
           ZIP="${APP_NAME}-${GITHUB_REF_NAME}.zip"
           # git archive only includes committed files, so gitignored files
           # (__pycache__, .venv) can never end up in the download.
-          # VERSION records which release the download came from.
+          # VERSION lets the app tell users when a newer release is out.
           git archive --format=zip --prefix="${APP_NAME}/" \
             --add-virtual-file="${APP_NAME}/VERSION:${GITHUB_REF_NAME}" \
             -o "$ZIP" "$GITHUB_REF_NAME"

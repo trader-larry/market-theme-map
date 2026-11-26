@@ -187,5 +187,34 @@ class PasswordTests(unittest.TestCase):
         self.assertEqual(self.status("/healthz"), 200)
 
 
+class UpdateNoticeTests(unittest.TestCase):
+    def setUp(self):
+        app.ARGS = types.SimpleNamespace(demo=False, update_check=True)
+        self._orig = (app.current_version, app._latest_release)
+        app._latest_release = lambda: ("v1.2.0", "https://example.invalid/r")
+
+    def tearDown(self):
+        app.current_version, app._latest_release = self._orig
+
+    def test_newer_release_is_flagged(self):
+        app.current_version = lambda: "v1.1.9"
+        self.assertTrue(app.version_info()["update"])
+
+    def test_same_or_older_release_is_not(self):
+        app.current_version = lambda: "v1.2.0"
+        self.assertFalse(app.version_info()["update"])
+        app.current_version = lambda: "v1.10.0"
+        self.assertFalse(app.version_info()["update"])
+
+    def test_git_clone_demo_and_opt_out_skip_the_check(self):
+        app.current_version = lambda: None
+        self.assertFalse(app.version_info()["update"])
+        app.current_version = lambda: "v1.0.0"
+        app.ARGS = types.SimpleNamespace(demo=True, update_check=True)
+        self.assertFalse(app.version_info()["update"])
+        app.ARGS = types.SimpleNamespace(demo=False, update_check=False)
+        self.assertFalse(app.version_info()["update"])
+
+
 if __name__ == "__main__":
     unittest.main()
