@@ -1,0 +1,48 @@
+# Builds the user download and publishes it as a GitHub Release.
+#
+# How to release: push a version tag, for example
+#   git tag v1.0.0 && git push origin v1.0.0
+# This workflow then zips the tagged files (minus anything marked
+# export-ignore in .gitattributes) and attaches the zip to a new release
+# with auto-generated notes. Edit the notes on GitHub afterwards if you like.
+#
+# Reusing in another repo: copy this file and .gitattributes, then change
+# APP_NAME below and the export-ignore list in .gitattributes.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  APP_NAME: market-theme-map
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the user zip
+        run: |
+          ZIP="${APP_NAME}-${GITHUB_REF_NAME}.zip"
+          # git archive only includes committed files, so gitignored files
+          # (__pycache__, .venv) can never end up in the download.
+          # VERSION records which release the download came from.
+          git archive --format=zip --prefix="${APP_NAME}/" \
+            --add-virtual-file="${APP_NAME}/VERSION:${GITHUB_REF_NAME}" \
+            -o "$ZIP" "$GITHUB_REF_NAME"
+          unzip -l "$ZIP"
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$ZIP" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes

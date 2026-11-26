@@ -14,19 +14,42 @@ A heatmap of the stock market grouped by investment theme, that runs on your own
 - **Free, delayed data** from Yahoo Finance, refreshed every 5 minutes
 - **No dependencies:** pure Python standard library plus one HTML page, so there's nothing to `pip install`
 
-## Quick start
+## Download
 
-You need [Python 3.10 or newer](https://www.python.org/downloads/).
+**[Download the latest version](https://github.com/trader-larry/market-theme-map/releases/latest)**,
+then pick the `market-theme-map-vX.Y.Z.zip` file under **Assets**. You don't need git or a GitHub account.
 
-**Windows:** double-click `run.bat`. When installing Python, tick "Add python.exe to PATH".
+You need **Python 3.10 or newer** first. That's the only thing to install.
 
-**Any OS:**
+**Windows**
+1. Install Python from [python.org/downloads](https://www.python.org/downloads/). On the first
+   installer screen, tick **"Add python.exe to PATH"**, then click Install Now.
+2. Download the zip above, right-click it and choose **Extract All**.
+3. Open the `market-theme-map` folder and double-click `run.bat`.
+   If Windows says "Windows protected your PC", click **More info → Run anyway**.
+4. Your browser opens the map once prices have loaded (10 to 30 seconds). Leave the small
+   command window open while you use it, and close it to stop.
 
-```
-python app.py
-```
+**Mac**
+1. Install Python from [python.org/downloads](https://www.python.org/downloads/) and run the installer.
+2. Download the zip above and double-click it to unzip.
+3. Open Terminal, type `cd ` (with a space), drag the `market-theme-map` folder into the
+   Terminal window, press Return, then run `python3 app.py`.
+4. Your browser opens the map once prices have loaded. Leave Terminal open while you use it,
+   and press Ctrl+C to stop.
 
-Your browser opens <http://localhost:8050> once prices have loaded, which takes 10 to 30 seconds. Leave the terminal window open while you use it, and close it (or press Ctrl+C) to stop.
+**Linux**
+1. Python 3 is usually already installed (check with `python3 --version`).
+2. Download and unzip the zip above.
+3. In a terminal, `cd` into the `market-theme-map` folder and run `python3 app.py`.
+4. Your browser opens <http://localhost:8050>.
+
+To update later, download the newest zip and unzip it over your folder. If you edited
+`themes.json`, copy it somewhere first, since the new zip has its own copy.
+
+## Options
+
+Add these after `app.py` (for example `python3 app.py --demo`), or after `run.bat` in a command prompt:
 
 | Option | What it does |
 | --- | --- |
@@ -69,13 +92,36 @@ Things to know:
 
 The app switches to hosted mode whenever the `PORT` environment variable is set: it listens on `0.0.0.0:$PORT` and doesn't open a browser. Running it at home works exactly as before.
 
-## Running the tests
+## For developers
 
-The tests fake Yahoo's responses, so they run offline:
+To work on the code, clone the repository instead of downloading a release:
+
+```
+git clone https://github.com/trader-larry/market-theme-map.git
+cd market-theme-map
+python app.py
+```
+
+It uses only the Python standard library, so there is nothing to `pip install`.
+
+**Running the tests.** The tests fake Yahoo's responses, so they run offline:
 
 ```
 python -m unittest
 ```
+
+**Cutting a release.** Push a version tag and GitHub builds the download for you:
+
+```
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+The [Release workflow](.github/workflows/release.yml) zips the tagged files into
+`market-theme-map-v1.2.0.zip` and publishes it as a GitHub Release with
+auto-generated notes. Only committed files go in, so `__pycache__` and other ignored
+files can't leak. Repo-only files (tests, the Render config, the screenshot) are left
+out by `export-ignore` lines in [.gitattributes](.gitattributes).
 
 ## Notes
 
