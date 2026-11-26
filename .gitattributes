@@ -1,0 +1,9 @@
+# Files listed here stay in the repo but are left out of the user download
+# that .github/workflows/release.yml builds with `git archive`.
+# Anything not listed ships, so a new file is included by default.
+.gitattributes   export-ignore
+.gitignore       export-ignore
+.github/         export-ignore
+tests/           export-ignore
+render.yaml      export-ignore
+screenshot.png   export-ignore

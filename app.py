@@ -326,6 +326,63 @@ def build_ticker(ticker, period):
 
 # ---------------------------------------------------------------- web server
 
+# --------------------------------------------------------------------------
+# Update notice
+# --------------------------------------------------------------------------
+# A release zip contains a VERSION file (written by .github/workflows/release.yml).
+# The page asks /api/version, which compares it with the newest GitHub release and
+# shows a "new version available" banner. It only reads the public release number;
+# nothing about you is sent. A git clone (or a Render deploy) has no VERSION file
+# and skips the check. Turn it off with --no-update-check or THEMEMAP_NO_UPDATE_CHECK=1.
+UPDATE_REPO = "trader-larry/market-theme-map"
+VERSION_FILE = BASE / "VERSION"
+UPDATE_CHECK_HOURS = 12
+_update = {"at": 0.0, "latest": None, "url": None}
+_update_lock = threading.Lock()
+
+
+def current_version():
+    try:
+        return VERSION_FILE.read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
+
+
+def _version_key(v):
+    """'v1.10.2' -> (1, 10, 2). Anything that isn't a plain number counts as 0."""
+    parts = [int(p) if p.isdigit() else 0 for p in v.strip().lstrip("vV").split("-")[0].split(".")]
+    return tuple(parts + [0] * (3 - len(parts)))
+
+
+def _latest_release():
+    """Newest published release on GitHub, asked at most every UPDATE_CHECK_HOURS."""
+    with _update_lock:
+        if time.time() - _update["at"] < UPDATE_CHECK_HOURS * 3600:
+            return _update["latest"], _update["url"]
+        _update["at"] = time.time()  # also after a failure, so an offline computer isn't retried every load
+        try:
+            req = urllib.request.Request(f"https://api.github.com/repos/{UPDATE_REPO}/releases/latest",
+                                         headers={"Accept": "application/vnd.github+json",
+                                                  "User-Agent": "market-theme-map-update-check"})
+            with urllib.request.urlopen(req, timeout=8) as r:
+                rel = json.loads(r.read().decode("utf-8"))
+            _update["latest"] = (rel.get("tag_name") or "").strip() or None
+            _update["url"] = rel.get("html_url") or f"https://github.com/{UPDATE_REPO}/releases/latest"
+        except Exception:
+            pass  # offline, rate-limited or no release yet: just show nothing
+        return _update["latest"], _update["url"]
+
+
+def version_info():
+    cur = current_version()
+    out = {"current": cur, "latest": None, "url": None, "update": False}
+    if not cur or not getattr(ARGS, "update_check", True) or getattr(ARGS, "demo", False):
+        return out
+    latest, url = _latest_release()
+    out.update(latest=latest, url=url, update=bool(latest) and _version_key(latest) > _version_key(cur))
+    return out
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=str(STATIC), **kw)
@@ -381,6 +438,8 @@ class Handler(SimpleHTTPRequestHandler):
                 if not TICKER_RE.fullmatch(ticker):
                     return self.send_json({"error": "invalid ticker"}, 400)
                 return self.send_json(build_ticker(ticker, q.get("period", "1D")))
+            if url.path == "/api/version":
+                return self.send_json(version_info())
             if url.path == "/api/refresh":
                 refresh_prices(force=True, wait=True)
                 return self.send_json({"ok": True, "asof": _prices["asof"]})
@@ -398,7 +457,11 @@ def main():
                     help="address to listen on (default 127.0.0.1, or 0.0.0.0 when PORT is set)")
     ap.add_argument("--demo", action="store_true", help="use made-up prices (no internet)")
     ap.add_argument("--no-browser", action="store_true", help="don't open a browser tab")
+    ap.add_argument("--no-update-check", action="store_true",
+                    help="don't check GitHub for a newer version (also THEMEMAP_NO_UPDATE_CHECK=1)")
     ARGS = ap.parse_args()
+    ARGS.update_check = not (ARGS.no_update_check
+                             or os.environ.get("THEMEMAP_NO_UPDATE_CHECK", "").strip().lower() in ("1", "true", "yes", "on"))
     if env_port:
         ARGS.no_browser = True
 
@@ -411,7 +474,8 @@ def main():
     print("Loading prices (first load can take ~20 seconds)...")
     refresh_prices(force=True)
     url = f"http://localhost:{ARGS.port}"
-    print(f"Market Theme Map running at {url}  (Ctrl+C to stop)")
+    ver = current_version()
+    print(f"Market Theme Map {ver + ' ' if ver else ''}running at {url}  (Ctrl+C to stop)")
     if os.environ.get("APP_PASSWORD"):
         print("Password protection is on (APP_PASSWORD is set).")
     if not ARGS.no_browser:
