@@ -7,6 +7,7 @@ A heatmap of the stock market grouped by investment theme, that runs on your own
 ## Features
 
 - **25 themes, about 180 stocks**, all defined in one editable file, [`themes.json`](themes.json)
+- **Themes or sectors:** a **View** toggle switches the map to the 11 standard GICS sectors (about nine large caps each, in [`sectors.json`](sectors.json)), so you can see whether a hot theme is leading its whole sector
 - **Six lookbacks:** 1D, 1W, 1M, 3M, 6M and 1Y, counted in trading sessions (1W is 5 sessions, 1Y is 252)
 - **Rank themes** by average move, by breadth (share of stocks up), or by name
 - **Theme stats:** equal-weighted average, median (so one big mover can't distort the picture) and breadth
@@ -46,7 +47,7 @@ You need **Python 3.10 or newer** first. That's the only thing to install.
 
 When a new version is out, the map shows a notice at the top with a download link.
 To update, download the newest zip and unzip it over your folder. If you edited
-`themes.json`, copy it somewhere first, since the new zip has its own copy.
+`themes.json` or `sectors.json`, copy it somewhere first, since the new zip has its own copy.
 
 ## Options
 
@@ -59,15 +60,15 @@ Add these after `app.py` (for example `python3 app.py --demo`), or after `run.ba
 | `--no-browser` | Doesn't open a browser tab |
 | `--no-update-check` | Doesn't check GitHub for a newer version (see [Update notice](#update-notice)) |
 
-## Customizing themes
+## Customizing themes and sectors
 
-Edit `themes.json`. Each entry is a theme name followed by its Yahoo Finance symbols:
+Edit `themes.json` (or `sectors.json` for the Sectors view). Each entry is a theme name followed by its Yahoo Finance symbols:
 
 ```json
 "My Theme": ["AAPL", "MSFT", "BRK-B"]
 ```
 
-Use Yahoo's symbol format, for example `BRK-B`, `RY.TO` for Toronto, or `^GSPC` for an index. Save the file and press ↻ in the app to pick up the change. A stock can appear in more than one theme.
+Use Yahoo's symbol format, for example `BRK-B`, `RY.TO` for Toronto, or `^GSPC` for an index. Save the file and press ↻ in the app to pick up the change. A stock can appear in more than one theme, and in a theme and a sector at the same time.
 
 ## How it works
 

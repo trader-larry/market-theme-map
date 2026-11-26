@@ -73,11 +73,19 @@ class RefreshTests(unittest.TestCase):
     def setUp(self):
         app.ARGS = types.SimpleNamespace(demo=False)
         app._prices.update(closes={}, dates=[], fetched=0.0, asof=None, error=None, busy=False)
-        self.orig_fetch_live, self.orig_load = app.fetch_live, app.load_themes
+        self.orig = (app.fetch_live, app.load_themes, app.load_sectors)
         app.load_themes = lambda: {"T": ["A", "B"]}
+        app.load_sectors = lambda: {}
 
     def tearDown(self):
-        app.fetch_live, app.load_themes = self.orig_fetch_live, self.orig_load
+        app.fetch_live, app.load_themes, app.load_sectors = self.orig
+
+    def test_prices_cover_themes_and_sectors(self):
+        app.load_sectors = lambda: {"S": ["B", "C"]}
+        asked = []
+        app.fetch_live = lambda tickers: (asked.extend(tickers), {t: [1.0, 2.0] for t in tickers}, ["d1"])[1:]
+        app.refresh_prices(force=True, wait=True)
+        self.assertEqual(asked, ["A", "B", "C"])  # B is in both, fetched once
 
     def test_symbols_missing_from_a_refresh_keep_last_prices(self):
         app.fetch_live = lambda tickers: ({"A": [1.0, 2.0], "B": [3.0, 4.0]}, ["d1"])
@@ -129,13 +137,46 @@ class CalculationTests(unittest.TestCase):
         info = app.get_info("NVDA")
         self.assertLessEqual(info["fiftyTwoWeekLow"], info["fiftyTwoWeekHigh"])
 
-    def test_themes_file_is_valid(self):
-        themes = app.load_themes()
-        self.assertTrue(themes)
-        for name, tickers in themes.items():
-            self.assertTrue(tickers, name)
-            for t in tickers:
-                self.assertRegex(t, app.TICKER_RE)
+    def test_themes_and_sectors_files_are_valid(self):
+        for groups in (app.load_themes(), app.load_sectors()):
+            self.assertTrue(groups)
+            for name, tickers in groups.items():
+                self.assertTrue(tickers, name)
+                self.assertEqual(len(tickers), len(set(tickers)), name)
+                for t in tickers:
+                    self.assertRegex(t, app.TICKER_RE)
+
+    def test_sectors_are_the_11_gics_sectors(self):
+        self.assertEqual(set(app.load_sectors()), {
+            "Information Technology", "Communication Services", "Consumer Discretionary",
+            "Consumer Staples", "Health Care", "Financials", "Industrials", "Energy",
+            "Utilities", "Real Estate", "Materials"})
+
+    def test_build_map_sector_view(self):
+        app.ARGS = types.SimpleNamespace(demo=True)
+        app._prices["fetched"] = 0
+        data = app.build_map("1D", "sectors")
+        self.assertEqual(data["view"], "sectors")
+        self.assertEqual({t["name"] for t in data["themes"]}, set(app.load_sectors()))
+        for sector in data["themes"]:
+            self.assertEqual(sector["count"], len(sector["members"]))  # every name has a price
+        self.assertEqual(app.build_map("1D")["view"], "themes")  # themes stay the default
+        self.assertEqual(app.build_map("1D", "bogus")["view"], "themes")
+
+    def test_ticker_lists_its_themes_and_sector(self):
+        app.ARGS = types.SimpleNamespace(demo=True)
+        app._prices["fetched"] = 0
+        d = app.build_ticker("NVDA", "1D")
+        self.assertIn("AI Semiconductors", d["themes"])
+        self.assertEqual(d["sectors"], ["Information Technology"])
+
+    def test_missing_sectors_file_means_no_sectors(self):
+        orig = app.SECTORS_FILE
+        app.SECTORS_FILE = orig.with_name("no-such-file.json")
+        try:
+            self.assertEqual(app.load_sectors(), {})
+        finally:
+            app.SECTORS_FILE = orig
 
 
 class PasswordTests(unittest.TestCase):
@@ -181,6 +222,8 @@ class PasswordTests(unittest.TestCase):
         self.assertEqual(self.status("/", "wrong"), 401)
         self.assertEqual(self.status("/", "s3cret"), 200)
         self.assertEqual(self.status("/api/map?period=1D", "s3cret"), 200)
+        self.assertEqual(self.status("/api/map?period=1D&view=sectors", "s3cret"), 200)
+        self.assertEqual(self.status("/api/map?period=1D&view=nope", "s3cret"), 400)
 
     def test_health_check_skips_password(self):
         self.env["APP_PASSWORD"] = "s3cret"
