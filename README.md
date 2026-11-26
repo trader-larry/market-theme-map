@@ -7,7 +7,7 @@ A heatmap of the stock market grouped by investment theme, that runs on your own
 ## Features
 
 - **25 themes, about 180 stocks**, all defined in one editable file, [`themes.json`](themes.json)
-- **Themes or sectors:** a **View** toggle switches the map to the 11 standard GICS sectors (about nine large caps each, in [`sectors.json`](sectors.json)), so you can see whether a hot theme is leading its whole sector
+- **Themes or sectors:** a **View** toggle switches the map to the 11 standard GICS sectors (about nine large caps each, in [`sectors.json`](sectors.json)), so you can see whether a hot theme is leading its whole sector. A sector card shows its State Street SPDR sector ETF's move (XLK, XLF and so on), so it matches those funds; its median and breadth come from the listed stocks
 - **Six lookbacks:** 1D, 1W, 1M, 3M, 6M and 1Y, counted in trading sessions (1W is 5 sessions, 1Y is 252)
 - **Rank themes** by average move, by breadth (share of stocks up), or by name
 - **Theme stats:** equal-weighted average, median (so one big mover can't distort the picture) and breadth
@@ -62,7 +62,7 @@ Add these after `app.py` (for example `python3 app.py --demo`), or after `run.ba
 
 ## Customizing themes and sectors
 
-Edit `themes.json` (or `sectors.json` for the Sectors view). Each entry is a theme name followed by its Yahoo Finance symbols:
+Edit `themes.json` (or `sectors.json` for the Sectors view). In `sectors.json` each sector also names the ETF whose move its card shows: `"Energy": {"etf": "XLE", "tickers": ["XOM", "CVX"]}`. Each entry is a theme name followed by its Yahoo Finance symbols:
 
 ```json
 "My Theme": ["AAPL", "MSFT", "BRK-B"]

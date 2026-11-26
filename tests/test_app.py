@@ -73,12 +73,13 @@ class RefreshTests(unittest.TestCase):
     def setUp(self):
         app.ARGS = types.SimpleNamespace(demo=False)
         app._prices.update(closes={}, dates=[], fetched=0.0, asof=None, error=None, busy=False)
-        self.orig = (app.fetch_live, app.load_themes, app.load_sectors)
+        self.orig = (app.fetch_live, app.load_themes, app.load_sectors, app.load_sector_etfs)
         app.load_themes = lambda: {"T": ["A", "B"]}
         app.load_sectors = lambda: {}
+        app.load_sector_etfs = lambda: {}
 
     def tearDown(self):
-        app.fetch_live, app.load_themes, app.load_sectors = self.orig
+        app.fetch_live, app.load_themes, app.load_sectors, app.load_sector_etfs = self.orig
 
     def test_prices_cover_themes_and_sectors(self):
         app.load_sectors = lambda: {"S": ["B", "C"]}
@@ -86,6 +87,13 @@ class RefreshTests(unittest.TestCase):
         app.fetch_live = lambda tickers: (asked.extend(tickers), {t: [1.0, 2.0] for t in tickers}, ["d1"])[1:]
         app.refresh_prices(force=True, wait=True)
         self.assertEqual(asked, ["A", "B", "C"])  # B is in both, fetched once
+
+    def test_sector_etfs_are_downloaded(self):
+        app.load_sector_etfs = lambda: {"S": "XLK"}
+        asked = []
+        app.fetch_live = lambda tickers: (asked.extend(tickers), {t: [1.0, 2.0] for t in tickers}, ["d1"])[1:]
+        app.refresh_prices(force=True, wait=True)
+        self.assertIn("XLK", asked)
 
     def test_symbols_missing_from_a_refresh_keep_last_prices(self):
         app.fetch_live = lambda tickers: ({"A": [1.0, 2.0], "B": [3.0, 4.0]}, ["d1"])
@@ -152,6 +160,32 @@ class CalculationTests(unittest.TestCase):
             "Consumer Staples", "Health Care", "Financials", "Industrials", "Energy",
             "Utilities", "Real Estate", "Materials"})
 
+    def test_every_sector_has_its_spdr_etf(self):
+        self.assertEqual(app.load_sector_etfs(), {
+            "Information Technology": "XLK", "Communication Services": "XLC",
+            "Consumer Discretionary": "XLY", "Consumer Staples": "XLP", "Health Care": "XLV",
+            "Financials": "XLF", "Industrials": "XLI", "Energy": "XLE", "Utilities": "XLU",
+            "Real Estate": "XLRE", "Materials": "XLB"})
+
+    def test_sector_move_is_the_etf_move(self):
+        app.ARGS = types.SimpleNamespace(demo=False)
+        orig = (app.load_sectors, app.load_sector_etfs, app.refresh_prices, dict(app._prices))
+        app.load_sectors = lambda: {"Tech": ["A", "B"], "Other": ["A"]}
+        app.load_sector_etfs = lambda: {"Tech": "XLK", "Other": "XNONE"}
+        app.refresh_prices = lambda **kw: None
+        app._prices["closes"] = {"A": [100.0, 110.0], "B": [100.0, 90.0], "XLK": [100.0, 103.0]}
+        try:
+            data = {g["name"]: g for g in app.build_map("1D", "sectors")["themes"]}
+        finally:
+            app.load_sectors, app.load_sector_etfs, app.refresh_prices = orig[:3]
+            app._prices.clear()
+            app._prices.update(orig[3])
+        tech = data["Tech"]
+        self.assertEqual((tech["avg"], tech["basis"], tech["etf"]["t"]), (3.0, "etf", "XLK"))
+        self.assertEqual((tech["median"], tech["adv"], tech["count"]), (0.0, 1, 2))  # from the stocks
+        other = data["Other"]  # ETF has no price: fall back to the stocks' average
+        self.assertEqual((other["avg"], other["basis"]), (10.0, "stocks"))
+
     def test_build_map_sector_view(self):
         app.ARGS = types.SimpleNamespace(demo=True)
         app._prices["fetched"] = 0
@@ -160,7 +194,10 @@ class CalculationTests(unittest.TestCase):
         self.assertEqual({t["name"] for t in data["themes"]}, set(app.load_sectors()))
         for sector in data["themes"]:
             self.assertEqual(sector["count"], len(sector["members"]))  # every name has a price
-        self.assertEqual(app.build_map("1D")["view"], "themes")  # themes stay the default
+            self.assertEqual(sector["basis"], "etf")
+        themes = app.build_map("1D")
+        self.assertEqual(themes["view"], "themes")  # themes stay the default
+        self.assertNotIn("etf", themes["themes"][0])
         self.assertEqual(app.build_map("1D", "bogus")["view"], "themes")
 
     def test_ticker_lists_its_themes_and_sector(self):
@@ -175,6 +212,7 @@ class CalculationTests(unittest.TestCase):
         app.SECTORS_FILE = orig.with_name("no-such-file.json")
         try:
             self.assertEqual(app.load_sectors(), {})
+            self.assertEqual(app.load_sector_etfs(), {})
         finally:
             app.SECTORS_FILE = orig
 

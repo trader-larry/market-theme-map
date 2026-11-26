@@ -1,13 +1,13 @@
 {
-  "Information Technology": ["AAPL", "MSFT", "NVDA", "AVGO", "ORCL", "CRM", "AMD", "CSCO", "ADBE", "IBM"],
-  "Communication Services": ["GOOGL", "META", "NFLX", "TMUS", "DIS", "VZ", "T", "CMCSA", "CHTR"],
-  "Consumer Discretionary": ["AMZN", "TSLA", "HD", "MCD", "BKNG", "LOW", "TJX", "NKE", "SBUX"],
-  "Consumer Staples": ["WMT", "COST", "PG", "KO", "PEP", "PM", "MDLZ", "CL", "MO"],
-  "Health Care": ["LLY", "UNH", "JNJ", "ABBV", "MRK", "TMO", "ABT", "ISRG", "AMGN"],
-  "Financials": ["BRK-B", "JPM", "V", "MA", "BAC", "WFC", "GS", "MS", "AXP"],
-  "Industrials": ["GE", "CAT", "RTX", "UNP", "HON", "DE", "BA", "LMT", "ETN"],
-  "Energy": ["XOM", "CVX", "COP", "EOG", "SLB", "MPC", "PSX", "OXY", "WMB"],
-  "Utilities": ["NEE", "SO", "DUK", "CEG", "AEP", "SRE", "D", "VST", "EXC"],
-  "Real Estate": ["PLD", "AMT", "EQIX", "WELL", "SPG", "O", "PSA", "DLR", "CCI"],
-  "Materials": ["LIN", "SHW", "APD", "ECL", "FCX", "NEM", "NUE", "DOW", "CTVA"]
+  "Information Technology": {"etf": "XLK", "tickers": ["AAPL", "MSFT", "NVDA", "AVGO", "ORCL", "CRM", "AMD", "CSCO", "ADBE", "IBM"]},
+  "Communication Services": {"etf": "XLC", "tickers": ["GOOGL", "META", "NFLX", "TMUS", "DIS", "VZ", "T", "CMCSA", "CHTR"]},
+  "Consumer Discretionary": {"etf": "XLY", "tickers": ["AMZN", "TSLA", "HD", "MCD", "BKNG", "LOW", "TJX", "NKE", "SBUX"]},
+  "Consumer Staples": {"etf": "XLP", "tickers": ["WMT", "COST", "PG", "KO", "PEP", "PM", "MDLZ", "CL", "MO"]},
+  "Health Care": {"etf": "XLV", "tickers": ["LLY", "UNH", "JNJ", "ABBV", "MRK", "TMO", "ABT", "ISRG", "AMGN"]},
+  "Financials": {"etf": "XLF", "tickers": ["BRK-B", "JPM", "V", "MA", "BAC", "WFC", "GS", "MS", "AXP"]},
+  "Industrials": {"etf": "XLI", "tickers": ["GE", "CAT", "RTX", "UNP", "HON", "DE", "BA", "LMT", "ETN"]},
+  "Energy": {"etf": "XLE", "tickers": ["XOM", "CVX", "COP", "EOG", "SLB", "MPC", "PSX", "OXY", "WMB"]},
+  "Utilities": {"etf": "XLU", "tickers": ["NEE", "SO", "DUK", "CEG", "AEP", "SRE", "D", "VST", "EXC"]},
+  "Real Estate": {"etf": "XLRE", "tickers": ["PLD", "AMT", "EQIX", "WELL", "SPG", "O", "PSA", "DLR", "CCI"]},
+  "Materials": {"etf": "XLB", "tickers": ["LIN", "SHW", "APD", "ECL", "FCX", "NEM", "NUE", "DOW", "CTVA"]}
 }

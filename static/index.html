@@ -61,6 +61,11 @@
   .kv div span:first-child { color: var(--muted); }
   .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--panel2); font-size: 12px; margin: 2px 4px 0 0; }
   .pill.sector { border: 1px solid var(--accent); }
+  .note { color: var(--muted); font-size: 12px; margin: 0 0 10px; }
+  .note:empty { display: none; }
+  .tile .etf { font-size: 11px; font-weight: 600; opacity: .8; margin-left: 4px; }
+  .row.etfrow { border-top: 0; background: var(--panel2); border-radius: 6px; margin-bottom: 4px; }
+  .row.etfrow .tk small { font-weight: 400; color: var(--muted); margin-left: 4px; }
   .up { color: var(--up); } .down { color: var(--down); }
   .help p { color: #c9cdd6; margin: 8px 0; }
   .help button.ok { margin-top: 10px; background: var(--accent); color: #0b1220; border: 0; border-radius: 8px; padding: 8px 16px; font-weight: 600; cursor: pointer; }
@@ -95,7 +100,7 @@
   </div>
   <div class="status" id="status">Loading&hellip;</div>
 </div>
-<main><div id="updateBanner"></div><div class="grid" id="grid"></div></main>
+<main><div id="updateBanner"></div><div class="note" id="viewNote"></div><div class="grid" id="grid"></div></main>
 <footer>Prices delayed. For information only, not investment advice. Data: Yahoo Finance.</footer>
 
 <div class="overlay" id="themeOv"><div class="sheet" id="themeSheet"></div></div>
@@ -103,7 +108,7 @@
 <div class="overlay" id="helpOv"><div class="sheet help">
   <h2>How to read this</h2>
   <p><b>Period</b> sets the lookback. Lookbacks use trading sessions, so 1W is five sessions, 1M is 21, 3M is 63, 6M is 126 and 1Y is 252.</p>
-  <p><b>View</b> switches between <b>Themes</b> (trades such as AI Semiconductors or GLP-1) and <b>Sectors</b> (the 11 standard GICS sectors, about nine large caps each). Compare the two to see whether a theme is leading its whole sector. A stock can be in both.</p>
+  <p><b>View</b> switches between <b>Themes</b> (trades such as AI Semiconductors or GLP-1) and <b>Sectors</b> (the 11 standard GICS sectors). A sector card shows its State Street SPDR sector ETF's move (XLK, XLF and so on), so it matches those funds, which weight companies by size. Its median and breadth come from the nine or ten large caps listed under it. Compare the two to see whether a theme is leading its whole sector. A stock can be in both.</p>
   <p><b>Rank by Move</b> orders themes by average move, strongest first. <b>Breadth</b> orders by the share of names advancing. <b>Name</b> sorts alphabetically.</p>
   <p>Theme figures are equal-weighted averages of their member names. The median is shown beside the average so one outsized mover doesn't distort the picture. Breadth counts advancing names.</p>
   <p>Fair value is the analysts' mean price target from Yahoo Finance. Edit <code>themes.json</code> or <code>sectors.json</code> to change the groups and tickers.</p>
@@ -172,13 +177,16 @@ function sorted(themes) {
 
 function render() {
   $("tagline").textContent = `Tap a ${noun()} to see its names. Tap a ticker for fair value and analyst coverage.`;
+  $("viewNote").textContent = state.view === "Sectors"
+    ? "Sector moves are the SPDR sector ETFs (XLK, XLF and so on), which weight companies by size. Median and breadth (\"up\") use the stocks listed in each sector."
+    : "";
   const d = state.data; if (!d) return;
   let s = `${d.lastDay ? "Prices through " + d.lastDay + " · " : ""}Updated ${d.asof || "–"}${d.demo ? " · DEMO DATA" : ""}`;
   if (d.error) s += ` · <span class="err">last refresh failed: ${esc(d.error)}</span>`;
   $("status").innerHTML = s;
   $("grid").innerHTML = sorted(d.themes).map(t => `
     <div class="tile" data-name="${esc(t.name)}" style="background:${heat(t.avg)}">
-      <div class="name">${esc(t.name)}</div>
+      <div class="name">${esc(t.name)}${t.etf ? `<span class="etf">${t.basis === "etf" ? esc(t.etf.t) : "avg of stocks"}</span>` : ""}</div>
       <div class="avg">${fmtPct(t.avg)}</div>
       <div class="meta"><span>Median ${fmtPct(t.median)}</span><span>${t.adv}/${t.count} up</span></div>
       <div class="breadth"><i style="width:${t.count ? (100 * t.adv / t.count) : 0}%"></i></div>
@@ -189,21 +197,22 @@ function render() {
 function openTheme(name) {
   const t = state.data.themes.find(x => x.name === name); if (!t) return;
   state.openTheme = name;
-  const max = Math.max(1, ...t.members.map(m => Math.abs(m.chg || 0)));
+  const max = Math.max(1, ...t.members.map(m => Math.abs(m.chg || 0)), Math.abs((t.etf && t.etf.chg) || 0));
   $("themeSheet").innerHTML = `
     <button class="close" data-close>&times;</button>
-    <h2>${esc(t.name)}</h2><div class="sub">${state.period} move · equal-weighted</div>
+    <h2>${esc(t.name)}</h2><div class="sub">${state.period} move · ${t.basis === "etf"
+      ? `${esc(t.etf.t)} (SPDR sector ETF, weighted by size)` : t.etf ? `equal-weighted (no ${esc(t.etf.t)} price yet)` : "equal-weighted"}</div>
     <div class="stats">
-      <div class="stat"><b class="${cls(t.avg)}">${fmtPct(t.avg)}</b><span>Average</span></div>
+      <div class="stat"><b class="${cls(t.avg)}">${fmtPct(t.avg)}</b><span>${t.basis === "etf" ? esc(t.etf.t) : "Average"}</span></div>
       <div class="stat"><b class="${cls(t.median)}">${fmtPct(t.median)}</b><span>Median</span></div>
       <div class="stat"><b>${t.adv}/${t.count}</b><span>Advancing</span></div>
     </div>
-    ${t.members.map(m => {
+    ${(t.etf ? [{ ...t.etf, etf: true }] : []).concat(t.members).map(m => {
       const w = m.chg == null ? 0 : 50 * Math.abs(m.chg) / max;
       const bar = m.chg == null ? "" : m.chg >= 0
         ? `<i style="left:50%;width:${w}%;background:var(--up)"></i>`
         : `<i style="left:${50 - w}%;width:${w}%;background:var(--down)"></i>`;
-      return `<div class="row" data-t="${esc(m.t)}"><span class="tk">${esc(m.t)}</span>
+      return `<div class="row${m.etf ? " etfrow" : ""}" data-t="${esc(m.t)}"><span class="tk">${esc(m.t)}${m.etf ? "<small>ETF</small>" : ""}</span>
         <div class="track">${bar}</div><span class="px">${m.price == null ? "no data" : "$" + fmtNum(m.price)}</span>
         <span class="pc ${cls(m.chg)}">${fmtPct(m.chg)}</span></div>`;
     }).join("")}`;
