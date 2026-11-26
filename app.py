@@ -50,10 +50,15 @@ _prices = {"closes": {}, "dates": [], "fetched": 0.0, "asof": None, "error": Non
 _info_cache = {}
 
 
+def _clean(tickers):
+    return [t.strip().upper() for t in tickers if t.strip()]
+
+
 def _load_groups(path):
+    """name -> tickers. An entry can also be {"etf": "XLK", "tickers": [...]}, as in sectors.json."""
     with open(path, encoding="utf-8") as f:
         groups = json.load(f)
-    return {name: [t.strip().upper() for t in tickers if t.strip()] for name, tickers in groups.items()}
+    return {name: _clean(v["tickers"] if isinstance(v, dict) else v) for name, v in groups.items()}
 
 
 def load_themes():
@@ -66,6 +71,17 @@ def load_sectors():
         return _load_groups(SECTORS_FILE)
     except FileNotFoundError:
         return {}
+
+
+def load_sector_etfs():
+    """Sector name -> its SPDR sector ETF (XLK, XLF...), whose move the sector card shows."""
+    try:
+        with open(SECTORS_FILE, encoding="utf-8") as f:
+            groups = json.load(f)
+    except FileNotFoundError:
+        return {}
+    return {name: v["etf"].strip().upper() for name, v in groups.items()
+            if isinstance(v, dict) and (v.get("etf") or "").strip()}
 
 
 def load_groups(view):
@@ -228,7 +244,8 @@ def refresh_prices(force=False, wait=False):
 def _download_prices():
     try:
         # Prices for both views are kept together, so switching views needs no new download.
-        tickers = all_tickers(load_themes(), load_sectors())
+        etfs = {name: [etf] for name, etf in load_sector_etfs().items()}
+        tickers = all_tickers(load_themes(), load_sectors(), etfs)
         try:
             fresh, dates = (fetch_demo if ARGS.demo else fetch_live)(tickers)
             if not fresh:
@@ -304,11 +321,18 @@ def pct_change(series, n):
 
 
 def build_map(period, view="themes"):
-    """Figures for each group in the chosen view. The list is called "themes" in either view."""
+    """Figures for each group in the chosen view. The list is called "themes" in either view.
+
+    A theme's move ("avg") is the equal-weighted average of its stocks. A sector's move is
+    its SPDR sector ETF's move instead, so it matches XLK, XLF and so on; if the ETF has no
+    price, it falls back to the stocks' average and says so in "basis". Median and breadth
+    always come from the listed stocks.
+    """
     view = view if view in VIEWS else "themes"
     n = PERIODS.get(period, 1)
     refresh_prices()
     closes = _prices["closes"]
+    etfs = load_sector_etfs() if view == "sectors" else {}
     themes = []
     for name, tickers in load_groups(view).items():
         members = []
@@ -318,9 +342,19 @@ def build_map(period, view="themes"):
             members.append({"t": t, "chg": None if chg is None else round(chg, 2),
                             "price": s[-1] if s else None})
         moves = [m["chg"] for m in members if m["chg"] is not None]
+        avg = round(statistics.fmean(moves), 2) if moves else None
+        group = {"name": name, "basis": "stocks"}
+        etf = etfs.get(name)
+        if etf:
+            s = closes.get(etf)
+            chg = pct_change(s, n) if s else None
+            group["etf"] = {"t": etf, "chg": None if chg is None else round(chg, 2),
+                            "price": s[-1] if s else None}
+            if chg is not None:
+                avg, group["basis"] = round(chg, 2), "etf"
         themes.append({
-            "name": name,
-            "avg": round(statistics.fmean(moves), 2) if moves else None,
+            **group,
+            "avg": avg,
             "median": round(statistics.median(moves), 2) if moves else None,
             "adv": sum(1 for m in moves if m > 0),
             "count": len(moves),
