@@ -4,7 +4,8 @@
 #   git tag v1.0.0 && git push origin v1.0.0
 # This workflow then zips the tagged files (minus anything marked
 # export-ignore in .gitattributes) and attaches the zip to a new release
-# with auto-generated notes. Edit the notes on GitHub afterwards if you like.
+# whose notes start with the update steps in .github/release-notes.md, followed
+# by auto-generated notes. Edit the notes on GitHub afterwards if you like.
 #
 # Reusing in another repo: copy this file and .gitattributes, then change
 # APP_NAME below and the export-ignore list in .gitattributes.
@@ -43,6 +44,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # The update steps go first, with this release's zip name filled in;
+          # GitHub's auto-generated notes (what changed) follow.
+          sed "s/vX\.Y\.Z/${GITHUB_REF_NAME}/g" .github/release-notes.md > notes.md
           gh release create "$GITHUB_REF_NAME" "$ZIP" \
             --title "$GITHUB_REF_NAME" \
+            --notes-file notes.md \
             --generate-notes

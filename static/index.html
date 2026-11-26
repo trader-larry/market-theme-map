@@ -359,7 +359,7 @@ async function checkUpdate() {
     if (!v.update || store("updateSeen") === v.latest) return;
     const el = $("updateBanner");
     el.innerHTML = `<div class="update"><span><strong>A new version is available:</strong> ${esc(v.latest)} (you have ${esc(v.current)}).
-      <a href="${esc(v.url)}" target="_blank" rel="noopener">See what's new and download it</a>, then unzip it over this folder.</span>
+      <a href="${esc(v.url)}" target="_blank" rel="noopener">Download it and see how to update</a>. Close the app, unzip the download, and copy its files over this folder.</span>
       <button id="updateClose" title="Hide until the next version">Dismiss</button></div>`;
     $("updateClose").onclick = () => { store("updateSeen", v.latest); el.innerHTML = ""; };
   } catch (e) { /* offline: show nothing */ }
