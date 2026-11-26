@@ -1,4 +1,4 @@
-"""Market Theme Map: a local heatmap of stock themes.
+"""Market Theme Map: a local heatmap of stock themes (or GICS sectors).
 
 Uses only Python's standard library, so there is nothing to install.
 
@@ -35,6 +35,8 @@ from urllib.parse import parse_qs, urlparse
 BASE = Path(__file__).resolve().parent
 STATIC = BASE / "static"
 THEMES_FILE = BASE / "themes.json"
+SECTORS_FILE = BASE / "sectors.json"
+VIEWS = ("themes", "sectors")  # the groupings the map can switch between
 
 # Lookbacks in trading sessions (1W = five sessions).
 TICKER_RE = re.compile(r"[A-Z0-9.\-^=]{1,15}")
@@ -48,14 +50,30 @@ _prices = {"closes": {}, "dates": [], "fetched": 0.0, "asof": None, "error": Non
 _info_cache = {}
 
 
+def _load_groups(path):
+    with open(path, encoding="utf-8") as f:
+        groups = json.load(f)
+    return {name: [t.strip().upper() for t in tickers if t.strip()] for name, tickers in groups.items()}
+
+
 def load_themes():
-    with open(THEMES_FILE, encoding="utf-8") as f:
-        themes = json.load(f)
-    return {name: [t.strip().upper() for t in tickers if t.strip()] for name, tickers in themes.items()}
+    return _load_groups(THEMES_FILE)
 
 
-def all_tickers(themes):
-    return sorted({t for tickers in themes.values() for t in tickers})
+def load_sectors():
+    """The 11 GICS sectors. Missing file means no sectors, so an old themes-only setup still runs."""
+    try:
+        return _load_groups(SECTORS_FILE)
+    except FileNotFoundError:
+        return {}
+
+
+def load_groups(view):
+    return load_sectors() if view == "sectors" else load_themes()
+
+
+def all_tickers(*groupings):
+    return sorted({t for groups in groupings for tickers in groups.values() for t in tickers})
 
 
 # ---------------------------------------------------------------- data sources
@@ -209,7 +227,8 @@ def refresh_prices(force=False, wait=False):
 
 def _download_prices():
     try:
-        tickers = all_tickers(load_themes())
+        # Prices for both views are kept together, so switching views needs no new download.
+        tickers = all_tickers(load_themes(), load_sectors())
         try:
             fresh, dates = (fetch_demo if ARGS.demo else fetch_live)(tickers)
             if not fresh:
@@ -284,12 +303,14 @@ def pct_change(series, n):
     return None if not base else (series[-1] / base - 1) * 100
 
 
-def build_map(period):
+def build_map(period, view="themes"):
+    """Figures for each group in the chosen view. The list is called "themes" in either view."""
+    view = view if view in VIEWS else "themes"
     n = PERIODS.get(period, 1)
     refresh_prices()
     closes = _prices["closes"]
     themes = []
-    for name, tickers in load_themes().items():
+    for name, tickers in load_groups(view).items():
         members = []
         for t in tickers:
             s = closes.get(t)
@@ -305,7 +326,7 @@ def build_map(period):
             "count": len(moves),
             "members": sorted(members, key=lambda m: -1e9 if m["chg"] is None else -m["chg"]),
         })
-    return {"period": period, "asof": _prices["asof"], "demo": ARGS.demo,
+    return {"period": period, "view": view, "asof": _prices["asof"], "demo": ARGS.demo,
             "lastDay": (_prices["dates"] or [None])[-1],
             "error": _prices["error"], "themes": themes}
 
@@ -321,7 +342,8 @@ def build_ticker(ticker, period):
     upside = round((target / price - 1) * 100, 1) if target and price else None
     return {"t": ticker, "price": price, "chg": pct_change(s, n) if s else None,
             "history": history, "upside": upside, "info": info,
-            "themes": [k for k, v in load_themes().items() if ticker in v]}
+            "themes": [k for k, v in load_themes().items() if ticker in v],
+            "sectors": [k for k, v in load_sectors().items() if ticker in v]}
 
 
 # ---------------------------------------------------------------- web server
@@ -432,7 +454,10 @@ class Handler(SimpleHTTPRequestHandler):
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
         try:
             if url.path == "/api/map":
-                return self.send_json(build_map(q.get("period", "1D")))
+                view = q.get("view", "themes")
+                if view not in VIEWS:
+                    return self.send_json({"error": "invalid view"}, 400)
+                return self.send_json(build_map(q.get("period", "1D"), view))
             if url.path == "/api/ticker":
                 ticker = q.get("t", "").strip().upper()
                 if not TICKER_RE.fullmatch(ticker):

@@ -60,6 +60,7 @@
   .kv div { display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding: 4px 0; }
   .kv div span:first-child { color: var(--muted); }
   .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--panel2); font-size: 12px; margin: 2px 4px 0 0; }
+  .pill.sector { border: 1px solid var(--accent); }
   .up { color: var(--up); } .down { color: var(--down); }
   .help p { color: #c9cdd6; margin: 8px 0; }
   .help button.ok { margin-top: 10px; background: var(--accent); color: #0b1220; border: 0; border-radius: 8px; padding: 8px 16px; font-weight: 600; cursor: pointer; }
@@ -82,9 +83,10 @@
 <body>
 <header>
   <h1>Market Theme Map</h1>
-  <div class="sub">Tap a theme to see its names. Tap a ticker for fair value and analyst coverage.</div>
+  <div class="sub" id="tagline">Tap a theme to see its names. Tap a ticker for fair value and analyst coverage.</div>
 </header>
 <div class="bar">
+  <div class="group"><span class="label">View</span><div class="seg" id="views"></div></div>
   <div class="group"><span class="label">Period</span><div class="seg" id="periods"></div></div>
   <div class="group"><span class="label">Rank by</span><div class="seg" id="ranks"></div></div>
   <div class="group">
@@ -101,17 +103,21 @@
 <div class="overlay" id="helpOv"><div class="sheet help">
   <h2>How to read this</h2>
   <p><b>Period</b> sets the lookback. Lookbacks use trading sessions, so 1W is five sessions, 1M is 21, 3M is 63, 6M is 126 and 1Y is 252.</p>
+  <p><b>View</b> switches between <b>Themes</b> (trades such as AI Semiconductors or GLP-1) and <b>Sectors</b> (the 11 standard GICS sectors, about nine large caps each). Compare the two to see whether a theme is leading its whole sector. A stock can be in both.</p>
   <p><b>Rank by Move</b> orders themes by average move, strongest first. <b>Breadth</b> orders by the share of names advancing. <b>Name</b> sorts alphabetically.</p>
   <p>Theme figures are equal-weighted averages of their member names. The median is shown beside the average so one outsized mover doesn't distort the picture. Breadth counts advancing names.</p>
-  <p>Fair value is the analysts' mean price target from Yahoo Finance. Edit <code>themes.json</code> to change themes and tickers.</p>
+  <p>Fair value is the analysts' mean price target from Yahoo Finance. Edit <code>themes.json</code> or <code>sectors.json</code> to change the groups and tickers.</p>
   <button class="ok" id="gotIt">Got it</button>
 </div></div>
 
 <script>
 const PERIODS = ["1D", "1W", "1M", "3M", "6M", "1Y"];
 const RANKS = ["Move", "Breadth", "Name"];
+const VIEWS = ["Themes", "Sectors"];
 const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
-let state = { period: store("period") || "1D", rank: store("rank") || "Move", data: null };
+let state = { period: store("period") || "1D", rank: store("rank") || "Move",
+              view: VIEWS.includes(store("view")) ? store("view") : "Themes", data: null };
+const noun = () => state.view === "Sectors" ? "sector" : "theme";
 
 const $ = id => document.getElementById(id);
 const fmtPct = v => v == null ? "–" : (v > 0 ? "+" : "") + v.toFixed(2) + "%";
@@ -136,15 +142,19 @@ function seg(el, items, key) {
   el.onclick = e => {
     const v = e.target.dataset.v; if (!v) return;
     state[key] = v; store(key, v); seg(el, items, key);
-    key === "period" ? load() : render();
+    if (key === "view") { $("themeOv").classList.remove("open"); state.data = null; $("grid").innerHTML = ""; }
+    key === "rank" ? render() : load();
   };
 }
 
 async function load() {
   $("status").textContent = "Loading…";
   try {
-    const r = await fetch(`/api/map?period=${state.period}`);
-    state.data = await r.json();
+    const want = { period: state.period, view: state.view };
+    const r = await fetch(`/api/map?period=${want.period}&view=${want.view.toLowerCase()}`);
+    const d = await r.json();
+    if (want.period !== state.period || want.view !== state.view) return;  // switched while loading
+    state.data = d;
     render();
   } catch (e) {
     $("status").innerHTML = `<span class="err">Can't reach the local server. Is app.py running?</span>`;
@@ -161,6 +171,7 @@ function sorted(themes) {
 }
 
 function render() {
+  $("tagline").textContent = `Tap a ${noun()} to see its names. Tap a ticker for fair value and analyst coverage.`;
   const d = state.data; if (!d) return;
   let s = `${d.lastDay ? "Prices through " + d.lastDay + " · " : ""}Updated ${d.asof || "–"}${d.demo ? " · DEMO DATA" : ""}`;
   if (d.error) s += ` · <span class="err">last refresh failed: ${esc(d.error)}</span>`;
@@ -243,7 +254,7 @@ async function openTicker(t) {
       <div><span>Market cap</span><span>${fmtCap(i.marketCap)}</span></div>
       <div><span>52w range</span><span>${i.fiftyTwoWeekLow ? fmtNum(i.fiftyTwoWeekLow) + " – " + fmtNum(i.fiftyTwoWeekHigh) : "–"}</span></div>
     </div>
-    <div style="margin-top:12px">${(d.themes || []).map(x => `<span class="pill">${esc(x)}</span>`).join("")}</div>
+    <div style="margin-top:12px">${(d.sectors || []).map(x => `<span class="pill sector" title="Sector">${esc(x)}</span>`).join("")}${(d.themes || []).map(x => `<span class="pill" title="Theme">${esc(x)}</span>`).join("")}</div>
     ${i.error ? `<div class="sub err" style="margin-top:8px">Analyst data unavailable: ${esc(i.error)}</div>` : ""}`;
 }
 
@@ -277,6 +288,7 @@ async function checkUpdate() {
   } catch (e) { /* offline: show nothing */ }
 }
 
+seg($("views"), VIEWS, "view");
 seg($("periods"), PERIODS, "period");
 seg($("ranks"), RANKS, "rank");
 if (!store("helpSeen")) $("helpOv").classList.add("open");
