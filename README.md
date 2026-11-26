@@ -45,9 +45,17 @@ You need **Python 3.10 or newer** first. That's the only thing to install.
 3. In a terminal, `cd` into the `market-theme-map` folder and run `python3 app.py`.
 4. Your browser opens <http://localhost:8050>.
 
-When a new version is out, the map shows a notice at the top with a download link.
-To update, download the newest zip and unzip it over your folder. If you edited
-`themes.json` or `sectors.json`, copy it somewhere first, since the new zip has its own copy.
+When a new version is out, the map shows a notice at the top with a link to the release.
+The release page starts with these update steps:
+
+1. Download `market-theme-map-vX.Y.Z.zip` from the **Assets** list.
+2. Close the app if it's running.
+3. Unzip the download. Inside is a `market-theme-map` folder.
+4. Copy everything in it into your existing `market-theme-map` folder, replacing the files.
+5. Start the app again.
+
+If you edited `themes.json` or `sectors.json`, copy them somewhere first and put them back
+afterwards, since the new zip has its own copies.
 
 ## Options
 
@@ -122,6 +130,7 @@ git push origin v1.2.0
 
 The [Release workflow](.github/workflows/release.yml) zips the tagged files into
 `market-theme-map-v1.2.0.zip` and publishes it as a GitHub Release with
+the update steps from [`.github/release-notes.md`](.github/release-notes.md) followed by
 auto-generated notes, and adds a `VERSION` file that powers the update notice. Only committed files go in, so `__pycache__` and other ignored
 files can't leak. Repo-only files (tests, the Render config, the screenshot) are left
 out by `export-ignore` lines in [.gitattributes](.gitattributes).
