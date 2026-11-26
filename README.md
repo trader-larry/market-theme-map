@@ -26,8 +26,11 @@ You need **Python 3.10 or newer** first. That's the only thing to install.
 1. Install Python from [python.org/downloads](https://www.python.org/downloads/). On the first
    installer screen, tick **"Add python.exe to PATH"**, then click Install Now.
 2. Download the zip above, right-click it and choose **Extract All**.
-3. Open the `market-theme-map` folder and double-click `run.bat`.
-   If Windows says "Windows protected your PC", click **More info → Run anyway**.
+3. Open the `market-theme-map` folder and double-click `app.py`.
+   If it opens in a text editor instead of running, right-click it, choose **Open with**, and
+   pick **Python**. You can also double-click `run.bat`. On PCs with Smart App Control turned on,
+   `run.bat` is blocked unless you right-click the zip, choose **Properties**, and tick **Unblock**
+   before extracting. `app.py` runs either way.
 4. Your browser opens the map once prices have loaded (10 to 30 seconds). Leave the small
    command window open while you use it, and close it to stop.
 
@@ -59,7 +62,7 @@ afterwards, since the new zip has its own copies.
 
 ## Options
 
-Add these after `app.py` (for example `python3 app.py --demo`), or after `run.bat` in a command prompt:
+Add these after `app.py` (for example `python3 app.py --demo`), or after `run.bat` or `py app.py` in a command prompt:
 
 | Option | What it does |
 | --- | --- |
