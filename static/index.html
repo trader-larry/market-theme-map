@@ -74,6 +74,24 @@
             padding: 8px 12px; margin-bottom: 10px; font-size: 13px; }
   .update a { color: inherit; font-weight: 600; }
   .update button { background: none; color: inherit; border: 1px solid #6b5520; border-radius: 6px; padding: 4px 10px; font: inherit; cursor: pointer; }
+  .tablewrap { margin-top: 22px; }
+  .tablewrap h2 { font-size: 15px; margin: 0 0 2px; }
+  .tablewrap .sub { margin-bottom: 8px; }
+  .scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+  table.periods { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  table.periods th, table.periods td { padding: 7px 10px; text-align: right; white-space: nowrap; }
+  table.periods th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-size: 12px;
+                     font-weight: 600; text-transform: uppercase; letter-spacing: .5px; cursor: pointer; user-select: none;
+                     border-bottom: 1px solid var(--line); }
+  table.periods th:hover { color: var(--text); }
+  table.periods th.sorted { color: var(--text); }
+  table.periods th.cur { box-shadow: inset 0 -2px 0 var(--accent); }
+  table.periods th:first-child, table.periods td:first-child { text-align: left; position: sticky; left: 0; background: var(--panel); }
+  table.periods td:first-child { font-weight: 600; cursor: pointer; }
+  table.periods td:first-child small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+  table.periods tbody tr { border-top: 1px solid var(--line); }
+  table.periods tbody tr:hover td:first-child { color: var(--accent); }
+  table.periods td.cell { font-weight: 600; }
   footer { color: var(--muted); font-size: 12px; text-align: center; padding: 10px 16px 30px; }
   svg.spark { width: 100%; height: 90px; display: block; margin-top: 8px; }
   @media (max-width: 520px) {
@@ -82,6 +100,7 @@
     .status { margin-left: 0; width: 100%; }
     .row { grid-template-columns: 58px 1fr 64px 58px; gap: 6px; }
     .kv { grid-template-columns: 1fr; }
+    table.periods th, table.periods td { padding: 6px 7px; font-size: 13px; }
   }
 </style>
 </head>
@@ -100,7 +119,12 @@
   </div>
   <div class="status" id="status">Loading&hellip;</div>
 </div>
-<main><div id="updateBanner"></div><div class="note" id="viewNote"></div><div class="grid" id="grid"></div></main>
+<main><div id="updateBanner"></div><div class="note" id="viewNote"></div><div class="grid" id="grid"></div>
+  <section class="tablewrap">
+    <h2 id="tableTitle">All periods</h2>
+    <div class="sub">Every period side by side. Click a column to sort; the highlighted column is the map's period.</div>
+    <div class="scroll"><table class="periods" id="table"></table></div>
+  </section></main>
 <footer>Prices delayed. For information only, not investment advice. Data: Yahoo Finance.</footer>
 
 <div class="overlay" id="themeOv"><div class="sheet" id="themeSheet"></div></div>
@@ -133,9 +157,9 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;"
 
 // Scale colour intensity by period, since a 1Y move is much bigger than a 1D move.
 const SCALE = { "1D": 3, "1W": 6, "1M": 12, "3M": 20, "6M": 30, "1Y": 45 };
-function heat(v) {
+function heat(v, period = state.period) {
   if (v == null) return "#2a2e38";
-  const t = Math.min(Math.abs(v) / SCALE[state.period], 1);
+  const t = Math.min(Math.abs(v) / SCALE[period], 1);
   const [r, g, b] = v >= 0 ? [22, 163, 74] : [220, 38, 38];
   const base = [42, 46, 56];
   const mix = (a, c) => Math.round(a + (c - a) * (0.25 + 0.75 * t));
@@ -147,8 +171,9 @@ function seg(el, items, key) {
   el.onclick = e => {
     const v = e.target.dataset.v; if (!v) return;
     state[key] = v; store(key, v); seg(el, items, key);
-    if (key === "view") { $("themeOv").classList.remove("open"); state.data = null; $("grid").innerHTML = ""; }
-    key === "rank" ? render() : load();
+    if (key === "view") { $("themeOv").classList.remove("open"); state.data = state.table = null; $("grid").innerHTML = $("table").innerHTML = ""; }
+    if (key === "period") state.sort = null;  // the table follows the map's period again
+    if (key === "rank") { state.sort = null; render(); renderTable(); } else load();
   };
 }
 
@@ -164,7 +189,50 @@ async function load() {
   } catch (e) {
     $("status").innerHTML = `<span class="err">Can't reach the local server. Is app.py running?</span>`;
   }
+  loadTable();
 }
+
+async function loadTable() {
+  try {
+    const view = state.view;
+    const d = await (await fetch(`/api/table?view=${view.toLowerCase()}`)).json();
+    if (view !== state.view || !d.rows) return;
+    state.table = d;
+    renderTable();
+  } catch (e) { /* the map's status line already reports a dead server */ }
+}
+
+// Sort is {col, dir}: col is "name" or a period. With none chosen, follow the map's period and Rank.
+function tableSort() {
+  if (state.sort) return state.sort;
+  return state.rank === "Name" ? { col: "name", dir: 1 } : { col: state.period, dir: -1 };
+}
+
+function renderTable() {
+  const d = state.table; if (!d) return;
+  const { col, dir } = tableSort();
+  const n = v => v == null ? -Infinity : v;
+  const rows = [...d.rows].sort((a, b) => col === "name"
+    ? dir * a.name.localeCompare(b.name)
+    : dir * (n(a.moves[col]) - n(b.moves[col])) || a.name.localeCompare(b.name));
+  const arrow = c => c === col ? (dir > 0 ? " ▲" : " ▼") : "";
+  const th = (c, label) => `<th data-col="${c}" class="${c === col ? "sorted" : ""}${c === state.period ? " cur" : ""}">${label}${arrow(c)}</th>`;
+  $("tableTitle").textContent = `All periods · ${state.view}`;
+  $("table").innerHTML = `<thead><tr>${th("name", state.view === "Sectors" ? "Sector" : "Theme")}${d.periods.map(p => th(p, p)).join("")}</tr></thead>
+    <tbody>${rows.map(r => `<tr data-name="${esc(r.name)}"><td>${esc(r.name)}${r.etf ? `<small>${esc(r.etf)}</small>` : ""}</td>${d.periods.map(p =>
+      `<td class="cell" style="background:${heat(r.moves[p], p)}" title="${p}${r.basis[p] === "etf" ? " · " + esc(r.etf) : r.etf ? " · avg of stocks" : ""}">${fmtPct(r.moves[p])}</td>`).join("")}</tr>`).join("")}</tbody>`;
+}
+
+$("table").onclick = e => {
+  const h = e.target.closest("th");
+  if (h) {
+    const c = h.dataset.col, cur = tableSort();
+    state.sort = { col: c, dir: c === cur.col ? -cur.dir : (c === "name" ? 1 : -1) };
+    return renderTable();
+  }
+  const r = e.target.closest("tr[data-name]");
+  if (r && state.data) openTheme(r.dataset.name);
+};
 
 function sorted(themes) {
   const t = [...themes];

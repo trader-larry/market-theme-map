@@ -365,6 +365,24 @@ def build_map(period, view="themes"):
             "error": _prices["error"], "themes": themes}
 
 
+def build_table(view="themes"):
+    """Every group's move over every period, for the table under the map.
+
+    Each cell is the same figure the map card shows for that period (the SPDR ETF's
+    move for a sector, falling back to its stocks' average), so the two always agree.
+    """
+    maps = {p: build_map(p, view) for p in PERIODS}
+    first = maps[next(iter(PERIODS))]
+    rows = []
+    for g in first["themes"]:
+        cells = {p: next(x for x in maps[p]["themes"] if x["name"] == g["name"]) for p in PERIODS}
+        rows.append({"name": g["name"], "etf": (g.get("etf") or {}).get("t"),
+                     "moves": {p: c["avg"] for p, c in cells.items()},
+                     "basis": {p: c["basis"] for p, c in cells.items()}})
+    return {"view": first["view"], "periods": list(PERIODS), "asof": first["asof"],
+            "demo": first["demo"], "rows": rows}
+
+
 def build_ticker(ticker, period):
     refresh_prices()
     s = _prices["closes"].get(ticker, [])
@@ -492,6 +510,11 @@ class Handler(SimpleHTTPRequestHandler):
                 if view not in VIEWS:
                     return self.send_json({"error": "invalid view"}, 400)
                 return self.send_json(build_map(q.get("period", "1D"), view))
+            if url.path == "/api/table":
+                view = q.get("view", "themes")
+                if view not in VIEWS:
+                    return self.send_json({"error": "invalid view"}, 400)
+                return self.send_json(build_table(view))
             if url.path == "/api/ticker":
                 ticker = q.get("t", "").strip().upper()
                 if not TICKER_RE.fullmatch(ticker):
